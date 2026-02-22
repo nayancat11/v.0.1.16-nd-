@@ -460,6 +460,13 @@ function register(ctx) {
         assistantMessageId: data.assistantMessageId,
         // For sub-branches: the parent of the user message (points to an assistant message)
         userParentMessageId: data.userParentMessageId,
+        // Generation parameters
+        temperature: data.temperature,
+        top_p: data.top_p,
+        top_k: data.top_k,
+        max_tokens: data.max_tokens,
+        // Thinking control
+        disableThinking: data.disableThinking || false,
       };
 
       const response = await fetch(apiUrl, {

@@ -2651,7 +2651,15 @@ const renderFileEditor = useCallback(({ nodeId }) => {
             handleTextSelection={() => {}}
             handleEditorCopy={() => {}}
             handleEditorPaste={() => {}}
-            handleAddToChat={() => {}}
+            handleAddToChat={(selectedText: string) => {
+                // Get the active pane's file path for context
+                const paneData = contentDataRef.current[activeContentPaneId || ''];
+                const filePath = paneData?.contentId;
+                const fileName = filePath ? filePath.split('/').pop() : 'selection';
+                const ext = fileName?.split('.').pop() || '';
+                const citation = `\`\`\`${ext}\n// From ${fileName}\n${selectedText}\n\`\`\``;
+                setInput(prev => `${prev}${prev ? '\n\n' : ''}${citation}`);
+            }}
             handleAIEdit={handleAICodeAction}
             startAgenticEdit={() => {}}
             onGitBlame={() => {}}
@@ -2771,7 +2779,7 @@ const renderPptxViewer = useCallback(({ nodeId }) => {
     );
 }, [rootLayoutNode, closeContentPane]);
 
-const renderLatexViewer = useCallback(({ nodeId }) => {
+const renderLatexViewer = useCallback(({ nodeId, onToggleZen, isZenMode, onClose }) => {
     return (
         <LatexViewer
             nodeId={nodeId}
@@ -2782,6 +2790,9 @@ const renderLatexViewer = useCallback(({ nodeId }) => {
             setPaneContextMenu={setPaneContextMenu}
             closeContentPane={closeContentPane}
             performSplit={performSplit}
+            onToggleZen={onToggleZen}
+            isZenMode={isZenMode}
+            onClose={onClose}
         />
     );
 }, [rootLayoutNode, closeContentPane, performSplit]);
@@ -4156,9 +4167,10 @@ const handleBrowserDialogNavigate = (url) => {
     };
 
     // Main input submit handler
-    const handleInputSubmit = async (e: React.FormEvent, options?: { voiceInput?: boolean; genParams?: { temperature: number; top_p: number; top_k: number; max_tokens: number } }) => {
+    const handleInputSubmit = async (e: React.FormEvent, options?: { voiceInput?: boolean; disableThinking?: boolean; genParams?: { temperature: number; top_p: number; top_k: number; max_tokens: number } }) => {
         e.preventDefault();
         const wasVoiceInput = options?.voiceInput || false;
+        const disableThinking = options?.disableThinking || false;
         const genParams = options?.genParams || { temperature: 0.7, top_p: 0.9, top_k: 40, max_tokens: 4096 };
 
         // Get pane-specific execution mode and selectedJinx
@@ -4416,6 +4428,7 @@ ${contextPrompt}`;
                         top_p: genParams.top_p,
                         top_k: genParams.top_k,
                         max_tokens: genParams.max_tokens,
+                        disableThinking,
                     };
                     await window.api.executeCommandStream(commandData);
                 }
@@ -4960,6 +4973,29 @@ ${contextPrompt}`;
         window.addEventListener('createNewFileWithName', handleCreateNewFileWithName as EventListener);
         return () => window.removeEventListener('createNewFileWithName', handleCreateNewFileWithName as EventListener);
     }, [createNewTextFile]);
+
+    // Listen for terminal clickable file:line paths
+    useEffect(() => {
+        const handleTerminalOpenFile = (e: CustomEvent<{ filePath: string; line: number; col: number; currentPath: string }>) => {
+            const { filePath, line, col, currentPath: termCwd } = e.detail;
+            // Resolve relative paths against terminal's cwd
+            const fullPath = filePath.startsWith('/')
+                ? filePath
+                : `${termCwd || currentPath}/${filePath}`;
+            const normalized = normalizePath(fullPath);
+            // Check if file is already open
+            const existingPaneId = Object.keys(contentDataRef.current).find(
+                id => contentDataRef.current[id]?.contentType === 'editor' && contentDataRef.current[id]?.contentId === normalized
+            );
+            if (existingPaneId) {
+                setActiveContentPaneId(existingPaneId);
+            } else {
+                createAndAddPaneNodeToLayout({ contentType: 'editor', contentId: normalized });
+            }
+        };
+        window.addEventListener('terminal-open-file', handleTerminalOpenFile as EventListener);
+        return () => window.removeEventListener('terminal-open-file', handleTerminalOpenFile as EventListener);
+    }, [currentPath, createAndAddPaneNodeToLayout, setActiveContentPaneId]);
 
     const createNewDocument = async (docType: 'docx' | 'xlsx' | 'pptx' | 'mapx') => {
         try {
@@ -7747,12 +7783,29 @@ const renderMainContent = () => {
 
                         setRootLayoutNode(newLayout);
                         setActiveContentPaneId(newPaneId);
+
+                        // Load file content for editor panes
+                        if (contentType === 'editor' && draggedItem.id) {
+                            (async () => {
+                                try {
+                                    const response = await window.api?.readFileContent?.(draggedItem.id);
+                                    if (response && !response.error) {
+                                        contentDataRef.current[newPaneId].fileContent = response.content;
+                                        contentDataRef.current[newPaneId].fileChanged = false;
+                                        setRootLayoutNode(prev => ({ ...prev }));
+                                    }
+                                } catch (err) {
+                                    console.error('Error loading file content:', err);
+                                }
+                            })();
+                        }
+
                         setDraggedItem(null);
                     }}  >
-                    <div className="text-center text-gray-400 max-w-md mx-auto">
-                        <div className="mb-6">
-                            <div className="text-[11px] uppercase tracking-wider text-gray-500 mb-3">Keyboard Shortcuts</div>
-                            <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-[11px]">
+                    <div className="text-center text-gray-400 max-w-lg mx-auto">
+                        <div className="mb-8">
+                            <div className="text-sm uppercase tracking-wider text-gray-500 mb-4">Keyboard Shortcuts</div>
+                            <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
                                 <div className="text-right text-gray-500">⌘ P</div><div className="text-left">Command palette</div>
                                 <div className="text-right text-gray-500">⌘ ⇧ C</div><div className="text-left">New chat</div>
                                 <div className="text-right text-gray-500">⌘ ⇧ T</div><div className="text-left">New terminal</div>
@@ -7761,7 +7814,7 @@ const renderMainContent = () => {
                                 <div className="text-right text-gray-500">⌘ ⇧ F</div><div className="text-left">Global search</div>
                             </div>
                         </div>
-                        <div className="text-[10px] text-gray-600">
+                        <div className="text-xs text-gray-600">
                             <span className="text-gray-500 not-italic">Tip of the day: </span>
                             <span className="italic">{(() => {
                                 const tips = [
@@ -8221,7 +8274,7 @@ const renderMainContent = () => {
                                 case 'pptx':
                                     return renderPptxViewer({ nodeId: zenModePaneId });
                                 case 'latex':
-                                    return renderLatexViewer({ nodeId: zenModePaneId });
+                                    return renderLatexViewer({ nodeId: zenModePaneId, isZenMode: true, onToggleZen: () => setZenModePaneId(null) });
                                 case 'image':
                                     return renderPicViewer({ nodeId: zenModePaneId });
                                 case 'mindmap':

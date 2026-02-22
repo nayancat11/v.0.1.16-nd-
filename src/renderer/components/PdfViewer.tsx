@@ -647,6 +647,8 @@ const PdfViewer = ({
     useEffect(() => {
         const handleRefresh = (e: CustomEvent) => {
             if (e.detail?.pdfPath === filePath) {
+                // Invalidate cache so we reload from disk
+                pdfBufferCache.delete(filePath);
                 setRefreshTrigger((prev) => prev + 1);
             }
         };

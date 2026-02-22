@@ -1,6 +1,6 @@
 import React, { useCallback, memo, useState, useEffect, useRef } from 'react';
 import {
-    BarChart3, Loader, X, ServerCrash, MessageSquare, BrainCircuit, Bot,
+    BarChart3, Loader, X, ServerCrash, MessageSquare, Bot,
     ChevronDown, ChevronRight, Database, Table, LineChart, BarChart as BarChartIcon,
     Star, Trash2, Play, Copy, Download, Plus, Settings2, Edit, Terminal, Globe,
     GitBranch, Brain, Zap, Clock, ChevronsRight, Repeat, ListFilter, File as FileIcon,
@@ -1276,36 +1276,7 @@ export const LayoutNode = memo(({ node, path, component }) => {
             );
         }
 
-        // LaTeX pane buttons (save, compile, status)
-        if (contentType === 'latex') {
-            paneHeaderChildren = (
-                <div className="flex items-center gap-1">
-                    {paneData?.hasChanges && <span className="text-yellow-400 text-[10px]">modified</span>}
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            if (paneData?.onSave) paneData.onSave();
-                        }}
-                        disabled={!paneData?.hasChanges || paneData?.isSaving}
-                        className="p-1 rounded text-xs theme-button theme-hover disabled:opacity-30"
-                        title="Save (Ctrl+S)"
-                    >
-                        {paneData?.isSaving ? <Loader size={12} className="animate-spin" /> : <Save size={12} />}
-                    </button>
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            if (paneData?.onCompile) paneData.onCompile(true);
-                        }}
-                        disabled={paneData?.isCompiling}
-                        className={`p-1 rounded text-xs theme-button theme-hover disabled:opacity-50 ${paneData?.isCompiling ? 'text-yellow-400' : paneData?.compileStatus === 'success' ? 'text-green-400' : paneData?.compileStatus === 'error' ? 'text-red-400' : ''}`}
-                        title="Compile & Preview (Ctrl+Enter)"
-                    >
-                        {paneData?.isCompiling ? <Loader size={12} className="animate-spin" /> : <Play size={12} />}
-                    </button>
-                </div>
-            );
-        }
+        // LaTeX pane — no paneHeaderChildren needed, toolbar is integrated in LatexViewer
 
         // Chat pane uses custom header content
         if (contentType === 'chat') {
@@ -1424,6 +1395,14 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     />
                 );
             }
+            if (contentType === 'latex') {
+                return paneRenderers.latex?.({
+                    nodeId: node.id,
+                    onToggleZen: toggleZenMode ? () => toggleZenMode(node.id) : undefined,
+                    isZenMode: zenModePaneId === node.id,
+                    onClose: () => closeContentPane(node.id, path),
+                });
+            }
 
             // Registry lookup for all standard pane types
             const renderer = paneRenderers[contentType];
@@ -1463,8 +1442,8 @@ export const LayoutNode = memo(({ node, path, component }) => {
                 )}
 
                 {/* Header - PaneHeader includes expand and close buttons */}
-                {/* Skip PaneHeader for browser, docx, pptx, csv - they have their own integrated toolbars */}
-                {contentType !== 'browser' && contentType !== 'docx' && contentType !== 'pptx' && contentType !== 'csv' && (
+                {/* Skip PaneHeader for browser, docx, pptx, csv, latex - they have their own integrated toolbars */}
+                {contentType !== 'browser' && contentType !== 'docx' && contentType !== 'pptx' && contentType !== 'csv' && contentType !== 'latex' && (
                     <PaneHeader
                         nodeId={node.id}
                         icon={headerIcon}

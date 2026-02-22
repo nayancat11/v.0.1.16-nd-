@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { BarChart3, ChevronDown, ChevronRight, ListFilter, MessageSquare, ChevronDownIcon } from 'lucide-react';
+import { BarChart3, ChevronDown, ChevronRight, ListFilter, MessageSquare } from 'lucide-react';
 
 // Token cost calculator based on model pricing ($ per 1K tokens)
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
@@ -79,7 +79,7 @@ const ChatHeaderContent: React.FC<ChatHeaderContentProps> = ({
     setShowBranchingUI,
     conversationBranches,
     topBarCollapsed,
-    onExpandTopBar
+    onExpandTopBar,
 }) => {
     const [statsExpanded, setStatsExpanded] = useState(false);
     const tokenCost = calculateTokenCost(chatStats.tokenCount, chatStats.models);

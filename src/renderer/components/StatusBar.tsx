@@ -245,7 +245,7 @@ const StatusBar: React.FC<StatusBarProps> = ({
                         <Check size={16} />
                     )}
                 </button>
-                <div className="absolute bottom-full right-0 mb-1 px-2 py-1 bg-gray-900 border border-gray-700 rounded text-[10px] text-gray-300 whitespace-nowrap opacity-0 group-hover/update:opacity-100 pointer-events-none transition-opacity z-50">
+                <div className="absolute bottom-full right-0 mb-1 px-2 py-1 bg-gray-900 border border-gray-700 rounded text-[10px] text-gray-300 whitespace-nowrap opacity-0 group-hover/update:opacity-100 pointer-events-none transition-opacity duration-150 z-50">
                     {updateAvailable
                         ? `v${appVersion || '?'} → v${updateAvailable.latestVersion} available`
                         : `v${appVersion || '?'} — up to date`

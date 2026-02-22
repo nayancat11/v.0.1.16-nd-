@@ -12,7 +12,8 @@ import { EditorView, lineNumbers, highlightActiveLineGutter, highlightActiveLine
 import { search, searchKeymap, highlightSelectionMatches } from '@codemirror/search';
 import { keymap } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
-import { HighlightStyle, syntaxHighlighting, indentOnInput, bracketMatching, foldGutter, foldKeymap } from '@codemirror/language';
+import { HighlightStyle, syntaxHighlighting, indentOnInput, bracketMatching, foldGutter, foldKeymap, indentUnit } from '@codemirror/language';
+import { EditorState } from '@codemirror/state';
 import { tags as t } from '@lezer/highlight';
 import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 import { lintKeymap } from '@codemirror/lint';
@@ -198,6 +199,11 @@ const CodeMirrorEditor = memo(({ value, onChange, filePath, onSave, onContextMen
         indentWithTab,
     ]), [onSave, onSendToTerminal]);
 
+    const tabSize = useMemo(() => {
+        const saved = localStorage.getItem('npcStudio_tabSize');
+        return saved ? parseInt(saved) : 4;
+    }, []);
+
     const extensions = useMemo(() => [
         // Core editor features
         lineNumbers(),
@@ -215,6 +221,10 @@ const CodeMirrorEditor = memo(({ value, onChange, filePath, onSave, onContextMen
         crosshairCursor(),
         highlightActiveLine(),
         highlightSelectionMatches(),
+
+        // Indentation settings
+        indentUnit.of(' '.repeat(tabSize)),
+        EditorState.tabSize.of(tabSize),
 
         // Language support
         languageExtension,
@@ -240,7 +250,7 @@ const CodeMirrorEditor = memo(({ value, onChange, filePath, onSave, onContextMen
 
         // Optional line wrapping (comment out for horizontal scroll)
         EditorView.lineWrapping,
-    ], [languageExtension, customKeymap]);
+    ], [languageExtension, customKeymap, tabSize]);
 
     const handleUpdate = useCallback((viewUpdate) => {
         if (viewUpdate.selectionSet && onSelect) {
@@ -567,6 +577,19 @@ const CodeEditorPane = ({
                             className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left text-purple-400 text-sm">
                             <GitBranch size={16} />Git Blame
                         </button>
+                        {contextMenuSelection && (
+                            <>
+                                <div className="border-t theme-border my-1"></div>
+                                <button
+                                    onClick={() => {
+                                        setEditorContextMenuPos(null);
+                                        handleAddToChat(contextMenuSelection);
+                                    }}
+                                    className="flex items-center gap-2 px-4 py-2 theme-hover w-full text-left text-blue-400 text-sm">
+                                    <MessageSquare size={16} />Add to Chat
+                                </button>
+                            </>
+                        )}
                         {onSendToTerminal && contextMenuSelection && (
                             <>
                                 <div className="border-t theme-border my-1"></div>

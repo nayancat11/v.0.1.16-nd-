@@ -293,9 +293,24 @@ export function useLayoutManager({ trackActivity }: UseLayoutManagerParams) {
         });
     }, [trackActivity]);
 
-    // Helper to find an empty pane (disabled)
+    // Helper to find an empty pane that can be reused
     const findEmptyPaneId = useCallback(() => {
-        return null;
+        const findEmpty = (node: any): string | null => {
+            if (!node) return null;
+            if (node.type === 'content') {
+                const data = contentDataRef.current[node.id];
+                if (!data || !data.contentType) return node.id;
+                return null;
+            }
+            if (node.type === 'split') {
+                for (const child of node.children) {
+                    const found = findEmpty(child);
+                    if (found) return found;
+                }
+            }
+            return null;
+        };
+        return findEmpty(rootLayoutNodeRef.current);
     }, []);
 
     // Create and add a new pane to the layout

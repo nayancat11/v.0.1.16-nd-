@@ -555,6 +555,19 @@ function getWorkspacePathForWebContents(webContents) {
 app.on('web-contents-created', (event, contents) => {
   // Handle context menu for webviews
   contents.on('context-menu', async (e, params) => {
+    // For main renderer: show native edit menu on editable fields (inputs, textareas)
+    if (contents.getType() !== 'webview' && params.isEditable) {
+      const menu = Menu.buildFromTemplate([
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { type: 'separator' },
+        { role: 'selectAll' },
+      ]);
+      menu.popup();
+      return;
+    }
+
     // Only handle for webviews (type 'webview')
     if (contents.getType() === 'webview') {
       e.preventDefault();

@@ -4219,9 +4219,24 @@ const renderFolderList = (structure) => {
         const totalChanges = staged.length + unstaged.length + untracked.length + conflicted.length;
 
         const openDiffViewer = (filePath: string, status: string) => {
-            // Open a diff pane for this file
             const paneId = generateId();
             const fullPath = filePath.startsWith('/') ? filePath : `${currentPath}/${filePath}`;
+            const ext = filePath.split('.').pop()?.toLowerCase() || '';
+
+            // Binary files can't be diffed meaningfully - open directly in appropriate viewer
+            const binaryExtensions = ['pdf', 'docx', 'doc', 'pptx', 'xlsx', 'xls', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'mp3', 'mp4', 'wav', 'zip', 'tar', 'gz', 'dmg', 'exe'];
+            if (binaryExtensions.includes(ext)) {
+                let contentType = 'editor';
+                if (ext === 'pdf') contentType = 'pdf';
+                else if (['csv', 'xlsx', 'xls'].includes(ext)) contentType = 'csv';
+                else if (['docx', 'doc'].includes(ext)) contentType = 'docx';
+                else if (ext === 'pptx') contentType = 'pptx';
+                else if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(ext)) contentType = 'image';
+                const newPane = { id: paneId, contentType, contentId: fullPath };
+                if (createAndAddPaneNodeToLayout) createAndAddPaneNodeToLayout(newPane);
+                return;
+            }
+
             const newPane = {
                 id: paneId,
                 contentType: 'diff',

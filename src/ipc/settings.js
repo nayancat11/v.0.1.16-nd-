@@ -634,6 +634,17 @@ function register(ctx) {
         updatedAt: Date.now()
       };
       await writePythonEnvConfig(config);
+
+      // Also update .npcshrc with the resolved Python path
+      try {
+        const pythonInfo = await resolvePythonPath(workspacePath, envConfig, getBackendPythonPath);
+        if (pythonInfo?.pythonPath) {
+          saveBackendPythonPath(pythonInfo.pythonPath);
+        }
+      } catch (rcErr) {
+        console.error('Error updating .npcshrc:', rcErr);
+      }
+
       return { success: true };
     } catch (err) {
       console.error('Error saving python env config:', err);

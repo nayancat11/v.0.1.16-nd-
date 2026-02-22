@@ -46,7 +46,7 @@ export const ChatMessage = memo(({
     conversationId,
     onOpenFile,
     availableModels,
-    availableNPCs
+    availableNPCs,
 }: {
     message: any;
     isSelected?: boolean;
