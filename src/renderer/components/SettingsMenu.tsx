@@ -354,7 +354,7 @@ const VoiceManager = () => {
     // Load saved TTS settings
     const loadSettings = useCallback(async () => {
         try {
-            const stored = localStorage.getItem('npcStudio_ttsSettings');
+            const stored = localStorage.getItem('incognide_ttsSettings');
             if (stored) {
                 const settings = JSON.parse(stored);
                 setSavedSettings(settings);
@@ -377,7 +377,7 @@ const VoiceManager = () => {
             engine: selectedEngine,
             voice: selectedVoice
         };
-        localStorage.setItem('npcStudio_ttsSettings', JSON.stringify(settings));
+        localStorage.setItem('incognide_ttsSettings', JSON.stringify(settings));
         setSavedSettings(settings);
         // Dispatch event for other components to pick up
         window.dispatchEvent(new CustomEvent('ttsSettingsChanged', { detail: settings }));
@@ -1366,10 +1366,20 @@ const PermissionsManager = () => {
     );
 
     if (!isMac) {
+        const isWindows = navigator.platform?.toLowerCase().includes('win');
         return (
             <div className="space-y-4">
                 <h3 className="text-lg font-medium text-white">Permissions</h3>
-                <p className="text-sm text-gray-400">Permission management is only available on macOS.</p>
+                <p className="text-sm text-gray-400">
+                    Camera, microphone, and screen capture permissions are managed through your system settings.
+                </p>
+                <div className="p-3 bg-gray-800/30 rounded-lg border border-gray-700/50">
+                    <p className="text-xs text-gray-500">
+                        {isWindows
+                            ? 'Go to Settings → Privacy & Security → Camera / Microphone to manage permissions.'
+                            : 'Check your desktop environment settings or use your distribution\'s privacy/security controls to manage camera and microphone access.'}
+                    </p>
+                </div>
             </div>
         );
     }
@@ -1587,50 +1597,50 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
 
         // Also save to localStorage for immediate pickup by other components
         if (globalSettings.default_new_pane_type) {
-            localStorage.setItem('npcStudio_defaultNewPaneType', globalSettings.default_new_pane_type);
+            localStorage.setItem('incognide_defaultNewPaneType', globalSettings.default_new_pane_type);
             // Dispatch custom event for same-window updates
             window.dispatchEvent(new CustomEvent('defaultPaneTypeChanged', { detail: globalSettings.default_new_pane_type }));
         }
         if (globalSettings.default_new_terminal_type) {
-            localStorage.setItem('npcStudio_defaultNewTerminalType', globalSettings.default_new_terminal_type);
+            localStorage.setItem('incognide_defaultNewTerminalType', globalSettings.default_new_terminal_type);
             window.dispatchEvent(new CustomEvent('defaultTerminalTypeChanged', { detail: globalSettings.default_new_terminal_type }));
         }
         if (globalSettings.default_new_document_type) {
-            localStorage.setItem('npcStudio_defaultNewDocumentType', globalSettings.default_new_document_type);
+            localStorage.setItem('incognide_defaultNewDocumentType', globalSettings.default_new_document_type);
             window.dispatchEvent(new CustomEvent('defaultDocumentTypeChanged', { detail: globalSettings.default_new_document_type }));
         }
 
         // Save theme colors to localStorage and apply them
         // Dark mode colors
         if (globalSettings.theme_dark_primary) {
-            localStorage.setItem('npcStudio_themeDarkPrimary', globalSettings.theme_dark_primary);
+            localStorage.setItem('incognide_themeDarkPrimary', globalSettings.theme_dark_primary);
             document.documentElement.style.setProperty('--theme-primary-dark', globalSettings.theme_dark_primary);
         }
         if (globalSettings.theme_dark_bg) {
-            localStorage.setItem('npcStudio_themeDarkBg', globalSettings.theme_dark_bg);
+            localStorage.setItem('incognide_themeDarkBg', globalSettings.theme_dark_bg);
             document.documentElement.style.setProperty('--theme-bg-dark', globalSettings.theme_dark_bg);
         }
         if (globalSettings.theme_dark_text) {
-            localStorage.setItem('npcStudio_themeDarkText', globalSettings.theme_dark_text);
+            localStorage.setItem('incognide_themeDarkText', globalSettings.theme_dark_text);
             document.documentElement.style.setProperty('--theme-text-dark', globalSettings.theme_dark_text);
         }
         // Light mode colors
         if (globalSettings.theme_light_primary) {
-            localStorage.setItem('npcStudio_themeLightPrimary', globalSettings.theme_light_primary);
+            localStorage.setItem('incognide_themeLightPrimary', globalSettings.theme_light_primary);
             document.documentElement.style.setProperty('--theme-primary-light', globalSettings.theme_light_primary);
         }
         if (globalSettings.theme_light_bg) {
-            localStorage.setItem('npcStudio_themeLightBg', globalSettings.theme_light_bg);
+            localStorage.setItem('incognide_themeLightBg', globalSettings.theme_light_bg);
             document.documentElement.style.setProperty('--theme-bg-light', globalSettings.theme_light_bg);
         }
         if (globalSettings.theme_light_text) {
-            localStorage.setItem('npcStudio_themeLightText', globalSettings.theme_light_text);
+            localStorage.setItem('incognide_themeLightText', globalSettings.theme_light_text);
             document.documentElement.style.setProperty('--theme-text-light', globalSettings.theme_light_text);
         }
         // HSB adjustments
-        localStorage.setItem('npcStudio_themeHueShift', String(globalSettings.theme_hue_shift ?? 0));
-        localStorage.setItem('npcStudio_themeSaturation', String(globalSettings.theme_saturation ?? 100));
-        localStorage.setItem('npcStudio_themeBrightness', String(globalSettings.theme_brightness ?? 100));
+        localStorage.setItem('incognide_themeHueShift', String(globalSettings.theme_hue_shift ?? 0));
+        localStorage.setItem('incognide_themeSaturation', String(globalSettings.theme_saturation ?? 100));
+        localStorage.setItem('incognide_themeBrightness', String(globalSettings.theme_brightness ?? 100));
         document.documentElement.style.setProperty('--theme-hue-shift', `${globalSettings.theme_hue_shift ?? 0}deg`);
         document.documentElement.style.setProperty('--theme-saturation', `${globalSettings.theme_saturation ?? 100}%`);
         document.documentElement.style.setProperty('--theme-brightness', `${globalSettings.theme_brightness ?? 100}%`);
@@ -1925,7 +1935,7 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
                                     const isDark = document.body.classList.contains('dark-mode');
                                     document.body.classList.toggle('dark-mode', !isDark);
                                     document.body.classList.toggle('light-mode', isDark);
-                                    localStorage.setItem('npcStudio_darkMode', (!isDark).toString());
+                                    localStorage.setItem('incognide_darkMode', (!isDark).toString());
                                 }}
                                 className={`w-10 h-5 rounded-full transition-colors ${document.body.classList.contains('dark-mode') ? 'bg-blue-500' : 'bg-gray-400'}`}
                             >

@@ -16,7 +16,7 @@ import { HighlightStyle, syntaxHighlighting, indentOnInput, bracketMatching, fol
 import { EditorState } from '@codemirror/state';
 import { tags as t } from '@lezer/highlight';
 import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
-import { lintKeymap } from '@codemirror/lint';
+import { lintKeymap, linter, lintGutter, type Diagnostic } from '@codemirror/lint';
 import { BrainCircuit, Edit, FileText, MessageSquare, GitBranch, X, Play } from 'lucide-react';
 
 const appHighlightStyle = HighlightStyle.define([
@@ -94,6 +94,33 @@ const editorTheme = EditorView.theme({
     },
     '.cm-searchMatch.cm-searchMatch-selected': {
         backgroundColor: 'rgba(166, 227, 161, 0.4)',
+    },
+    // Lint gutter & diagnostics
+    '.cm-lint-marker-error': {
+        content: '"!"',
+        color: '#f38ba8',
+    },
+    '.cm-lint-marker-warning': {
+        content: '"⚠"',
+        color: '#f9e2af',
+    },
+    '.cm-lintRange-error': {
+        backgroundImage: 'none',
+        textDecoration: 'underline wavy #f38ba8',
+        textUnderlineOffset: '3px',
+    },
+    '.cm-lintRange-warning': {
+        backgroundImage: 'none',
+        textDecoration: 'underline wavy #f9e2af',
+        textUnderlineOffset: '3px',
+    },
+    '.cm-tooltip-lint': {
+        backgroundColor: '#1e1e2e',
+        border: '1px solid #313244',
+        borderRadius: '4px',
+        color: '#cdd6f4',
+        padding: '4px 8px',
+        fontSize: '12px',
     },
     '& .cm-selectionMatch': {
         backgroundColor: '#3d3522',
@@ -200,9 +227,48 @@ const CodeMirrorEditor = memo(({ value, onChange, filePath, onSave, onContextMen
     ]), [onSave, onSendToTerminal]);
 
     const tabSize = useMemo(() => {
-        const saved = localStorage.getItem('npcStudio_tabSize');
+        const saved = localStorage.getItem('incognide_tabSize');
         return saved ? parseInt(saved) : 4;
     }, []);
+
+    // Lint extension: runs linter via IPC, debounced
+    const lintExtension = useMemo(() => {
+        const ext = filePath?.split('.').pop()?.toLowerCase();
+        let language: string | null = null;
+        if (['js', 'mjs', 'jsx'].includes(ext || '')) language = 'javascript';
+        else if (['ts', 'tsx'].includes(ext || '')) language = 'typescript';
+        else if (['py', 'pyw'].includes(ext || '')) language = 'python';
+        else if (ext === 'tex') language = 'tex';
+
+        if (!language) return [];
+
+        const lintEnabled = localStorage.getItem('incognide_lintEnabled') !== 'false';
+        if (!lintEnabled) return [];
+
+        return [
+            linter(async (view) => {
+                const content = view.state.doc.toString();
+                if (!content.trim()) return [];
+                try {
+                    const results = await (window as any).api?.lintFile?.({ filePath, content, language });
+                    if (!Array.isArray(results)) return [];
+                    return results.map((d: any) => {
+                        const fromLine = view.state.doc.line(Math.min(d.from.line + 1, view.state.doc.lines));
+                        const toLine = view.state.doc.line(Math.min(d.to.line + 1, view.state.doc.lines));
+                        const from = Math.min(fromLine.from + d.from.col, fromLine.to);
+                        const to = Math.min(toLine.from + d.to.col, toLine.to);
+                        return {
+                            from: Math.max(0, from),
+                            to: Math.max(from, to),
+                            message: d.message,
+                            severity: d.severity === 'error' ? 'error' : 'warning',
+                        } as Diagnostic;
+                    });
+                } catch { return []; }
+            }, { delay: 2000 }),
+            lintGutter(),
+        ];
+    }, [filePath]);
 
     const extensions = useMemo(() => [
         // Core editor features
@@ -229,6 +295,9 @@ const CodeMirrorEditor = memo(({ value, onChange, filePath, onSave, onContextMen
         // Language support
         languageExtension,
 
+        // Lint support
+        ...lintExtension,
+
         // Search with styled panel
         search({ top: true }),
 
@@ -250,7 +319,7 @@ const CodeMirrorEditor = memo(({ value, onChange, filePath, onSave, onContextMen
 
         // Optional line wrapping (comment out for horizontal scroll)
         EditorView.lineWrapping,
-    ], [languageExtension, customKeymap, tabSize]);
+    ], [languageExtension, lintExtension, customKeymap, tabSize]);
 
     const handleUpdate = useCallback((viewUpdate) => {
         if (viewUpdate.selectionSet && onSelect) {

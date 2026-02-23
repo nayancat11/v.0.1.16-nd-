@@ -980,7 +980,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
             />
 
             <div
-                className="relative theme-bg-primary theme-border border rounded-lg group h-full flex flex-col m-2 overflow-visible z-[9999]"
+                className="relative theme-bg-primary theme-border border rounded-lg group h-full flex flex-col m-2 overflow-visible z-[10]"
                 onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsHovering(true); }}
                 onDragEnter={(e) => { e.stopPropagation(); setIsHovering(true); }}
                 onDragLeave={(e) => { e.stopPropagation(); setIsHovering(false); }}

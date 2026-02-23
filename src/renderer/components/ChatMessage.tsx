@@ -90,7 +90,7 @@ export const ChatMessage = memo(({
     // Get saved TTS settings
     const getTTSSettings = () => {
         try {
-            const stored = localStorage.getItem('npcStudio_ttsSettings');
+            const stored = localStorage.getItem('incognide_ttsSettings');
             if (stored) {
                 return JSON.parse(stored);
             }

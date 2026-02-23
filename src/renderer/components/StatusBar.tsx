@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
     MessageSquare, Terminal, Globe, FileText, File as FileIcon,
     BrainCircuit, Clock, Bot, Zap, Users, Database, ChevronRight, ChevronDown,
-    GitBranch, Image, BarChart3, AlertCircle, RefreshCw, Check
+    GitBranch, Image, BarChart3, AlertCircle, RefreshCw, Check, Columns, Layers
 } from 'lucide-react';
 import MemoryIcon from './MemoryIcon';
 import { useAiEnabled } from './AiFeatureContext';
@@ -47,6 +47,9 @@ interface StatusBarProps {
     onCheckForUpdates?: () => Promise<void>;
     // Collapse
     onCollapse?: () => void;
+    // Open mode (pane vs tab)
+    openMode?: 'pane' | 'tab';
+    onToggleOpenMode?: () => void;
 }
 
 const StatusBar: React.FC<StatusBarProps> = ({
@@ -69,14 +72,38 @@ const StatusBar: React.FC<StatusBarProps> = ({
     updateAvailable,
     onCheckForUpdates,
     onCollapse,
+    openMode = 'pane',
+    onToggleOpenMode,
 }) => {
     const aiEnabled = useAiEnabled();
     const [checkingUpdates, setCheckingUpdates] = useState(false);
+    const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
 
     const handleCheckUpdates = async () => {
-        if (checkingUpdates) return;
+        if (checkingUpdates || downloadProgress !== null) return;
         if (updateAvailable) {
-            (window as any).api?.browserOpenExternal?.(updateAvailable.releaseUrl);
+            // Download and install in-app
+            setDownloadProgress(0);
+            const cleanup = (window as any).api?.onUpdateDownloadProgress?.((data: any) => {
+                setDownloadProgress(data.progress);
+            });
+            try {
+                const result = await (window as any).api?.downloadAndInstallUpdate?.({
+                    releaseUrl: updateAvailable.releaseUrl,
+                });
+                if (result?.success) {
+                    setDownloadProgress(100);
+                } else {
+                    // Fallback to external download
+                    (window as any).api?.browserOpenExternal?.(updateAvailable.releaseUrl);
+                    setDownloadProgress(null);
+                }
+            } catch {
+                (window as any).api?.browserOpenExternal?.(updateAvailable.releaseUrl);
+                setDownloadProgress(null);
+            } finally {
+                cleanup?.();
+            }
             return;
         }
         if (!onCheckForUpdates) return;
@@ -231,13 +258,26 @@ const StatusBar: React.FC<StatusBarProps> = ({
                 </div>
             )}
 
+            {/* Open mode toggle */}
+            {onToggleOpenMode && (
+                <button
+                    onClick={onToggleOpenMode}
+                    className={`${btnClass} ${openMode === 'tab' ? 'text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}
+                    title={openMode === 'pane' ? 'New pane mode (click to switch to tab mode)' : 'Tab mode (click to switch to pane mode)'}
+                >
+                    {openMode === 'pane' ? <Columns size={16} /> : <Layers size={16} />}
+                </button>
+            )}
+
             {/* Update check - far right, icon only, version in tooltip above */}
             <div className="relative group/update">
                 <button
                     onClick={handleCheckUpdates}
                     className={`${btnClass} ${updateAvailable ? 'text-amber-500' : 'text-gray-400 dark:text-gray-500'}`}
                 >
-                    {updateAvailable ? (
+                    {downloadProgress !== null ? (
+                        <span className="text-[10px] font-mono text-amber-400">{downloadProgress}%</span>
+                    ) : updateAvailable ? (
                         <AlertCircle size={16} />
                     ) : checkingUpdates ? (
                         <RefreshCw size={16} className="animate-spin" />

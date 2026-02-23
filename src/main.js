@@ -582,13 +582,16 @@ app.on('web-contents-created', (event, contents) => {
 
       log(`[CONTEXT MENU] Webview context menu: selectedText="${selectedText.substring(0, 50)}...", linkURL="${linkURL}", mediaType="${mediaType}"`);
 
-      // Send context menu event to renderer
-      if (mainWindow && !mainWindow.isDestroyed()) {
+      // Send context menu event to renderer — route to the correct parent window
+      const ctxParentWin = BrowserWindow.fromWebContents(contents.hostWebContents || contents)
+        || BrowserWindow.getFocusedWindow()
+        || BrowserWindow.getAllWindows()[0];
+      if (ctxParentWin && !ctxParentWin.isDestroyed()) {
         // Get exact cursor position from screen
         const cursorPos = screen.getCursorScreenPoint();
-        const windowBounds = mainWindow.getBounds();
+        const windowBounds = ctxParentWin.getBounds();
 
-        mainWindow.webContents.send('browser-show-context-menu', {
+        ctxParentWin.webContents.send('browser-show-context-menu', {
           x: cursorPos.x - windowBounds.x,
           y: cursorPos.y - windowBounds.y,
           selectedText,
@@ -656,10 +659,32 @@ app.on('web-contents-created', (event, contents) => {
         return { action: 'allow' };
       }
 
+      // SSO/OAuth auth flows — allow as popup so tokens stay in the webview's session
+      const AUTH_PATTERNS = [
+        'accounts.google.com', 'accounts.youtube.com', 'myaccount.google.com',
+        'login.microsoftonline.com', 'login.live.com', 'login.windows.net',
+        'github.com/login', 'github.com/sessions',
+        'auth0.com', 'okta.com', 'onelogin.com',
+        'sso.', '/oauth', '/auth/', '/login', '/signin', '/saml',
+        'appleid.apple.com', 'idmsa.apple.com',
+        'api.twitter.com/oauth', 'x.com/i/oauth',
+        'facebook.com/v', 'facebook.com/dialog',
+        'linkedin.com/oauth',
+        'contacts.google.com/widget', 'apis.google.com',
+        'plus.google.com', 'drive.google.com',
+      ];
+      if (AUTH_PATTERNS.some(p => url.includes(p))) {
+        log(`[WebView] Allowing auth/SSO popup: ${url}`);
+        return { action: 'allow' };
+      }
+
       // For real URLs, deny the popup and open in our tab system
       log(`[WebView] Intercepting window.open: ${url} (disposition: ${disposition})`);
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('browser-open-in-new-tab', {
+      const parentWin = BrowserWindow.fromWebContents(contents.hostWebContents || contents)
+        || BrowserWindow.getFocusedWindow()
+        || BrowserWindow.getAllWindows()[0];
+      if (parentWin && !parentWin.isDestroyed()) {
+        parentWin.webContents.send('browser-open-in-new-tab', {
           url,
           disposition // 'background-tab', 'foreground-tab', 'new-window', etc.
         });
@@ -672,8 +697,11 @@ app.on('web-contents-created', (event, contents) => {
       const checkAndRedirect = (realUrl) => {
         if (realUrl && realUrl !== 'about:blank') {
           log(`[WebView] Popup navigated to: ${realUrl} - redirecting to app tab`);
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('browser-open-in-new-tab', {
+          const parentWin = BrowserWindow.fromWebContents(contents.hostWebContents || contents)
+            || BrowserWindow.getFocusedWindow()
+            || BrowserWindow.getAllWindows()[0];
+          if (parentWin && !parentWin.isDestroyed()) {
+            parentWin.webContents.send('browser-open-in-new-tab', {
               url: realUrl,
               disposition: 'new-window'
             });
@@ -733,9 +761,12 @@ app.on('web-contents-created', (event, contents) => {
         // Cancel immediately - renderer will handle via download manager
         item.cancel();
 
-        // Send to renderer's download manager
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('browser-download-requested', {
+        // Send to renderer's download manager — route to the correct parent window
+        const dlParentWin = BrowserWindow.fromWebContents(contents.hostWebContents || contents)
+          || BrowserWindow.getFocusedWindow()
+          || BrowserWindow.getAllWindows()[0];
+        if (dlParentWin && !dlParentWin.isDestroyed()) {
+          dlParentWin.webContents.send('browser-download-requested', {
             url,
             filename,
             mimeType: item.getMimeType(),

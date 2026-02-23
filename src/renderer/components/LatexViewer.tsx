@@ -1244,7 +1244,8 @@ const LatexViewer = ({
         setShowLog(true);
 
         try {
-            const res = await (window as any).api.compileLatex(filePath);
+            const needsBibtex = bibFilePath || /\\bibliography\{|\\addbibresource\{|\\printbibliography/.test(content);
+            const res = await (window as any).api.compileLatex(filePath, { bibtex: !!needsBibtex });
             const log = res?.log || res?.error || '';
             setCompileLog(log);
 

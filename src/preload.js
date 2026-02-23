@@ -612,6 +612,8 @@ onTerminalClosed: (callback) => {
 
 getFileStats: (filePath) => ipcRenderer.invoke('getFileStats', filePath),
 
+lintFile: (opts) => ipcRenderer.invoke('lintFile', opts),
+
 openFile: (path) => ipcRenderer.invoke('open-file', path),
 
 writeFileBuffer: (path, uint8) => ipcRenderer.invoke('write-file-buffer', path, uint8),
@@ -659,6 +661,9 @@ fileExists: (path) => ipcRenderer.invoke('file-exists', path),
     npcTeamSyncResolve: (args) => ipcRenderer.invoke('npc-team:sync-resolve', args),
     npcTeamSyncCommit: (args) => ipcRenderer.invoke('npc-team:sync-commit', args),
     npcTeamSyncDiff: (args) => ipcRenderer.invoke('npc-team:sync-diff', args),
+    npcTeamCompareBundled: () => ipcRenderer.invoke('npc-team:compare-bundled'),
+    npcTeamAcceptBundled: (args) => ipcRenderer.invoke('npc-team:accept-bundled', args),
+    npcTeamBundledDiff: (args) => ipcRenderer.invoke('npc-team:bundled-diff', args),
 
     getLogsDir: () => ipcRenderer.invoke('getLogsDir'),
     readLogFile: (logType) => ipcRenderer.invoke('readLogFile', logType),
@@ -748,4 +753,10 @@ fileExists: (path) => ipcRenderer.invoke('file-exists', path),
     // Version and Update APIs
     checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
     getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+    downloadAndInstallUpdate: (opts) => ipcRenderer.invoke('download-and-install-update', opts),
+    onUpdateDownloadProgress: (callback) => {
+        const handler = (_, data) => callback(data);
+        ipcRenderer.on('update-download-progress', handler);
+        return () => ipcRenderer.removeListener('update-download-progress', handler);
+    },
 });
