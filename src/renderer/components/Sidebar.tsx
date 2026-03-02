@@ -2281,7 +2281,7 @@ const renderWebsiteList = () => {
         }
 
         return (
-            <div className="mt-4 border-t theme-border pt-2">
+            <div className="border-b theme-border pb-1 flex-shrink-0">
                 {/* Header with collapse toggle */}
                 <div className="flex items-center justify-between px-4 py-1" data-tutorial="disk-usage">
                     <div className="text-xs text-gray-500 font-medium flex items-center gap-2">
@@ -2911,8 +2911,8 @@ const renderWebsiteList = () => {
     return (
         <>
             <div
-                className="fixed inset-0 z-40"
-                onClick={() => setSidebarItemContextMenuPos(null)}
+                className="fixed inset-0 z-40 bg-transparent"
+                onMouseDown={() => setSidebarItemContextMenuPos(null)}
                 onContextMenu={(e) => {
                     // Allow right-click to pass through — close this menu so the new one can open
                     setSidebarItemContextMenuPos(null);
@@ -3268,12 +3268,25 @@ const renderFolderList = (structure) => {
                         </>
                     )}
                 </div>
-                {/* Middle: folder nav buttons */}
-                <div className="flex-1 flex items-center justify-end" style={{ position: 'relative', overflow: 'visible' }}>
+                {/* Right: browse, up, current path (full height), folder pane */}
+                <div className="flex-1 flex items-stretch justify-end" style={{ position: 'relative', overflow: 'visible' }}>
+                    <button
+                        onClick={async (e) => {
+                            e.stopPropagation();
+                            try {
+                                const result = await (window as any).api.open_directory_picker();
+                                if (result) { switchToPath(result); }
+                            } catch {}
+                        }}
+                        className="flex items-center justify-center w-1/4 py-4 -my-4 hover:bg-yellow-500/20 transition-all text-blue-400"
+                        title="Browse for folder"
+                    >
+                        <FolderPlus size={10} />
+                    </button>
                     <button
                         onClick={(e) => { e.stopPropagation(); if (currentPath !== baseDir) goUpDirectory(currentPath, baseDir, switchToPath, setError); }}
                         disabled={currentPath === baseDir}
-                        className={`p-1 pr-0 theme-hover rounded transition-all ${currentPath === baseDir ? 'opacity-40' : 'text-gray-400 hover:text-yellow-400'}`}
+                        className={`flex items-center justify-center px-1 py-4 -my-4 hover:bg-yellow-500/20 transition-all ${currentPath === baseDir ? 'opacity-40' : 'text-gray-400 hover:text-yellow-400'}`}
                         title="Go up one folder — drop files here to move to parent"
                         onDragOver={(e) => {
                             if (currentPath !== baseDir) {
@@ -3321,27 +3334,13 @@ const renderFolderList = (structure) => {
                             closeAllDropdowns();
                             setFolderDropdownOpen(!folderDropdownOpen);
                         }}
-                        className="flex items-center gap-0.5 p-1 theme-hover transition-colors rounded text-gray-400 hover:text-yellow-400"
+                        className="flex items-center gap-0.5 px-1 py-4 -my-4 hover:bg-yellow-500/20 transition-colors text-gray-400 hover:text-yellow-400"
                         title={currentPath}
                     >
                         <span className="text-[9px] font-medium truncate max-w-[100px]">{(() => { const name = getFileName(currentPath) || 'Root'; return name.length > 7 ? name.slice(0, 7) + '…' : name; })()}</span>
                         <ChevronDown size={8} className={`flex-shrink-0 transition-transform text-gray-600 dark:text-gray-400 ${folderDropdownOpen ? 'rotate-180' : ''}`} />
                     </button>
                 </div>
-                {/* Right: browse (small) + folder pane (full w-1/4 like other sections) */}
-                <button
-                    onClick={async (e) => {
-                        e.stopPropagation();
-                        try {
-                            const result = await (window as any).api.open_directory_picker();
-                            if (result) { switchToPath(result); }
-                        } catch {}
-                    }}
-                    className="flex items-center justify-center px-1.5 py-4 -my-4 hover:bg-yellow-500/20 transition-all"
-                    title="Browse for folder"
-                >
-                    <FolderPlus size={11} className="text-blue-400" />
-                </button>
                 <button
                     onClick={(e) => { e.stopPropagation(); createAndAddPaneNodeToLayout?.({ contentType: 'folder', contentId: currentPath }); setFilesCollapsed(false); }}
                     className="flex items-center justify-center w-1/4 py-4 -my-4 hover:bg-yellow-500/20 transition-all"
@@ -4639,8 +4638,8 @@ onDragStart={(e) => {
             <>
                 {/* Backdrop to catch outside clicks */}
                 <div
-                    className="fixed inset-0 z-40"
-                    onClick={() => setContextMenuPos(null)}
+                    className="fixed inset-0 z-40 bg-transparent"
+                    onMouseDown={() => setContextMenuPos(null)}
                 />
                 <div
                     className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50"
@@ -4686,8 +4685,8 @@ onDragStart={(e) => {
             <>
                 {/* Backdrop to catch outside clicks */}
                 <div
-                    className="fixed inset-0 z-40"
-                    onClick={() => setFileContextMenuPos(null)}
+                    className="fixed inset-0 z-40 bg-transparent"
+                    onMouseDown={() => setFileContextMenuPos(null)}
                 />
                 <div
                     className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50"
@@ -4747,8 +4746,8 @@ onDragStart={(e) => {
         websiteContextMenu && (
             <>
                 <div
-                    className="fixed inset-0 z-40"
-                    onClick={() => setWebsiteContextMenu(null)}
+                    className="fixed inset-0 z-40 bg-transparent"
+                    onMouseDown={() => setWebsiteContextMenu(null)}
                 />
                 <div
                     className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50 min-w-[200px]"

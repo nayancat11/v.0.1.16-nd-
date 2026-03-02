@@ -1,49 +1,13 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-    Plus, Trash2, Settings, Edit2, X, Clock, Play, Pause, RotateCcw,
-    RefreshCw, Calendar, Terminal, Check, AlertCircle, ChevronDown,
-    ChevronRight, Save, Copy, Eye, EyeOff, Zap, Server, FileText,
-    Code, Hash, Bot, Sparkles, TestTube, FolderCode, FileCode, Database,
-    Wrench, Table, Layers
+    Plus, Trash2, Edit2, X, Clock, Play, Pause,
+    RefreshCw, Terminal, Check, AlertCircle, ChevronDown,
+    ChevronRight, Save, Copy, Eye, Zap, FileText,
+    Code, Bot, Sparkles, FileCode, Database,
+    Table, Activity, Cpu, Search, Square,
 } from 'lucide-react';
 
-interface CronJob {
-    id: string;
-    schedule: string;
-    command: string;
-    commandType: 'bash' | 'python' | 'npc' | 'sql-model' | 'custom';
-    npc?: string;
-    jinx?: string;
-    sqlModelId?: string;
-    sqlModelName?: string;
-    targetDb?: string;
-    enabled: boolean;
-    lastRun?: string;
-    nextRun?: string;
-    description?: string;
-    isExample?: boolean;
-}
-
-interface Daemon {
-    id: string;
-    name: string;
-    command: string;
-    commandType: 'bash' | 'python' | 'npc' | 'custom';
-    npc?: string;
-    jinx?: string;
-    status: 'running' | 'stopped' | 'error';
-    pid?: number;
-    uptime?: string;
-    restarts?: number;
-    isExample?: boolean;
-}
-
-interface SystemCronJob {
-    schedule: string;
-    command: string;
-    user?: string;
-}
-
+// ─── Types ───────────────────────────────────────────────────────────
 interface SqlModel {
     id: string;
     name: string;
@@ -55,9 +19,10 @@ interface SqlModel {
     jinx?: string;
     lastRunAt?: string;
     filePath?: string;
+    isGlobal?: boolean;
 }
 
-// NQL Functions reference
+// ─── NQL Functions reference ─────────────────────────────────────────
 const NQL_FUNCTIONS = [
     { name: 'get_llm_response', category: 'llm', description: 'Get LLM response for text', color: 'text-blue-400' },
     { name: 'extract_facts', category: 'llm', description: 'Extract facts from text', color: 'text-blue-400' },
@@ -73,1460 +38,1074 @@ const NQL_FUNCTIONS = [
     { name: 'zoom_in', category: 'sampling', description: 'Zoom into detail', color: 'text-cyan-400' },
 ];
 
-// Schedule presets
+const NQL_CATEGORIES = [...new Set(NQL_FUNCTIONS.map(f => f.category))];
+
+// ─── Schedule presets ────────────────────────────────────────────────
 const SCHEDULE_PRESETS = [
     { label: 'Every minute', value: '* * * * *' },
-    { label: 'Every 5 minutes', value: '*/5 * * * *' },
-    { label: 'Every 15 minutes', value: '*/15 * * * *' },
-    { label: 'Every 30 minutes', value: '*/30 * * * *' },
-    { label: 'Every hour', value: '0 * * * *' },
-    { label: 'Every 6 hours', value: '0 */6 * * *' },
-    { label: 'Every 12 hours', value: '0 */12 * * *' },
-    { label: 'Daily at midnight', value: '0 0 * * *' },
-    { label: 'Daily at 9am', value: '0 9 * * *' },
-    { label: 'Weekly (Sunday)', value: '0 0 * * 0' },
-    { label: 'Monthly (1st)', value: '0 0 1 * *' },
+    { label: 'Every 5 min', value: '*/5 * * * *' },
+    { label: 'Every 15 min', value: '*/15 * * * *' },
+    { label: 'Every 30 min', value: '*/30 * * * *' },
+    { label: 'Hourly', value: '0 * * * *' },
+    { label: 'Every 6h', value: '0 */6 * * *' },
+    { label: 'Every 12h', value: '0 */12 * * *' },
+    { label: 'Daily midnight', value: '0 0 * * *' },
+    { label: 'Daily 9am', value: '0 9 * * *' },
+    { label: 'Weekdays 9am', value: '0 9 * * 1-5' },
+    { label: 'Weekly Sun', value: '0 0 * * 0' },
+    { label: 'Monthly 1st', value: '0 0 1 * *' },
+];
+const humanSchedule = (s: string) => SCHEDULE_PRESETS.find(p => p.value === s)?.label || s;
+
+// ─── Example templates ───────────────────────────────────────────────
+// Jobs: scheduleJob → compile_job_script → `npc <command>` in crontab.
+// Commands: run:<model>, jinx names, natural language tasks for the npc CLI.
+const EXAMPLE_JOBS: { name: string; schedule: string; command: string; desc: string; npc?: string }[] = [
+    { name: 'memory_extract', schedule: '0 */6 * * *', command: 'extract_memories limit=50', desc: 'Extract memories from recent conversations every 6h' },
+    { name: 'kg_sleep', schedule: '0 3 * * *', command: 'sleep backfill=true', desc: 'Nightly KG evolution with memory backfill' },
+    { name: 'kg_dream', schedule: '0 4 * * 0', command: 'sleep dream=true', desc: 'Weekly KG creative synthesis' },
+    { name: 'context_compress', schedule: '0 */12 * * *', command: 'compress', desc: 'Compress conversation context every 12h' },
 ];
 
-// Example cron jobs - disabled by default
-const EXAMPLE_CRON_JOBS: CronJob[] = [
-    {
-        id: 'example-backup',
-        schedule: '0 2 * * *',
-        command: 'tar -czf ~/backups/project-$(date +%Y%m%d).tar.gz ~/projects/myapp',
-        commandType: 'bash',
-        enabled: false,
-        description: 'Daily backup at 2am - compresses project folder',
-        isExample: true
-    },
-    {
-        id: 'example-cleanup',
-        schedule: '0 3 * * 0',
-        command: 'find /tmp -type f -mtime +7 -delete',
-        commandType: 'bash',
-        enabled: false,
-        description: 'Weekly cleanup - removes temp files older than 7 days',
-        isExample: true
-    },
-    {
-        id: 'example-python-report',
-        schedule: '0 8 * * 1-5',
-        command: 'python3 ~/scripts/daily_report.py --email user@example.com',
-        commandType: 'python',
-        enabled: false,
-        description: 'Weekday morning report - runs Python script at 8am',
-        isExample: true
-    },
-    {
-        id: 'example-npc-digest',
-        schedule: '0 18 * * *',
-        command: '/digest --summarize-day',
-        commandType: 'npc',
-        npc: 'simon',
-        enabled: false,
-        description: 'NPC daily digest - AI summarizes the day at 6pm',
-        isExample: true
-    },
-    {
-        id: 'example-npc-check',
-        schedule: '*/30 * * * *',
-        command: '/check "Are there any critical issues in the logs?"',
-        commandType: 'npc',
-        npc: 'simon',
-        enabled: false,
-        description: 'NPC log monitor - AI checks logs every 30 minutes',
-        isExample: true
-    },
-    {
-        id: 'example-health-check',
-        schedule: '*/5 * * * *',
-        command: 'curl -sf http://localhost:3000/health || echo "Service down!" | mail -s "Alert" admin@example.com',
-        commandType: 'bash',
-        enabled: false,
-        description: 'Health check - pings service every 5 minutes',
-        isExample: true
-    },
-    {
-        id: 'example-sql-model-daily',
-        schedule: '0 1 * * *',
-        command: 'run:daily_facts',
-        commandType: 'sql-model',
-        sqlModelId: 'daily_facts',
-        sqlModelName: 'daily_facts',
-        targetDb: '~/npcsh_history.db',
-        enabled: false,
-        description: 'SQL Model - Run daily_facts model at 1am to extract facts',
-        isExample: true
-    },
-    {
-        id: 'example-sql-model-weekly',
-        schedule: '0 2 * * 0',
-        command: 'run:knowledge_base',
-        commandType: 'sql-model',
-        sqlModelId: 'knowledge_base',
-        sqlModelName: 'knowledge_base',
-        targetDb: '~/npcsh_history.db',
-        enabled: false,
-        description: 'SQL Model - Weekly knowledge synthesis on Sundays',
-        isExample: true
-    },
+// Daemons: addDaemon → spawn() — raw shell processes (listeners, watchers, monitors).
+const EXAMPLE_DAEMONS: { name: string; command: string; desc: string; npc?: string }[] = [
+    { name: 'downloads-watcher', command: 'inotifywait -m -e create ~/Downloads --format "%f" | while read f; do echo "New: $f"; done', desc: 'Watch ~/Downloads for new files' },
+    { name: 'log-monitor', command: 'tail -F /var/log/syslog | grep --line-buffered -iE "error|warn|critical"', desc: 'Stream syslog errors in real time' },
+    { name: 'repo-watcher', command: 'inotifywait -mr -e modify,create,delete --exclude "\\.git" . --format "%w%f %e"', desc: 'Watch current directory for file changes' },
 ];
 
-// Example daemons - disabled by default
-const EXAMPLE_DAEMONS: Daemon[] = [
-    {
-        id: 'example-watcher',
-        name: 'file-watcher',
-        command: 'fswatch -o ~/projects | xargs -n1 -I{} echo "File changed"',
-        commandType: 'bash',
-        status: 'stopped',
-        enabled: false,
-        isExample: true
-    },
-    {
-        id: 'example-server',
-        name: 'dev-server',
-        command: 'python3 -m http.server 8080 --directory ~/public',
-        commandType: 'python',
-        status: 'stopped',
-        enabled: false,
-        isExample: true
-    },
-    {
-        id: 'example-npc-breathe',
-        name: 'npc-breathe',
-        command: '/breathe --interval 300',
-        commandType: 'npc',
-        npc: 'simon',
-        status: 'stopped',
-        enabled: false,
-        isExample: true
-    },
-];
-
-// Example SQL Models - templates for NQL/npcsql
 const EXAMPLE_SQL_MODELS: SqlModel[] = [
     {
-        id: 'example-conversation-summary',
-        name: 'conversation_summaries',
-        description: 'AI-powered conversation summarization using NPC',
-        sql: `-- npcsql model: Summarize conversations with AI
-{{ config(materialized='table') }}
+        id: 'extract_facts', name: 'extract_facts',
+        description: 'Extract facts from recent conversations into the knowledge graph',
+        materialization: 'incremental', schedule: '0 */6 * * *',
+        sql: `{{ config(materialized='incremental') }}
 
 SELECT
-    id,
-    user_input,
-    nql.get_llm_response(
-        CONCAT('Summarize this conversation: ', user_input),
-        'sibiji'
-    ) as summary,
-    nql.extract_facts(user_input, 'sibiji') as facts,
-    created_at
-FROM {{ ref('conversation_history') }}
-WHERE created_at >= DATE('now', '-7 days')
-LIMIT 100`,
-        materialization: 'table',
-        npc: 'sibiji'
-    },
-    {
-        id: 'example-fact-extraction',
-        name: 'daily_facts',
-        description: 'Extract and store facts from daily interactions',
-        sql: `-- npcsql model: Extract facts from conversations
-{{ config(materialized='incremental') }}
-
-SELECT
-    DATE(created_at) as fact_date,
-    nql.extract_facts(
-        GROUP_CONCAT(user_input, ' '),
-        'sibiji'
-    ) as daily_facts,
-    COUNT(*) as interaction_count
-FROM {{ ref('conversation_history') }}
+    conversation_id, npc, team,
+    nql.extract_facts(content) as facts,
+    nql.identify_groups(content) as groups,
+    directory_path, timestamp
+FROM conversation_history
+WHERE role = 'assistant'
 {% if is_incremental() %}
-WHERE created_at > (SELECT MAX(fact_date) FROM {{ this }})
+  AND timestamp > (SELECT MAX(timestamp) FROM {{ this }})
 {% endif %}
-GROUP BY DATE(created_at)`,
-        materialization: 'incremental',
-        schedule: '0 0 * * *',
-        npc: 'sibiji'
+ORDER BY timestamp DESC`,
     },
     {
-        id: 'example-sentiment-analysis',
-        name: 'sentiment_analysis',
-        description: 'Analyze sentiment of user messages',
-        sql: `-- npcsql model: Sentiment analysis
-{{ config(materialized='view') }}
+        id: 'kg_sleep', name: 'kg_sleep',
+        description: 'Evolve the knowledge graph — structure unlinked facts, merge concepts, infer new facts',
+        materialization: 'table', schedule: '0 3 * * *',
+        sql: `{{ config(materialized='table') }}
 
-SELECT
-    id,
-    user_input,
-    nql.get_llm_response(
-        CONCAT('Rate the sentiment of this text from -1 (negative) to 1 (positive), return only the number: ', user_input),
-        'sibiji'
-    ) as sentiment_score,
-    nql.get_llm_response(
-        CONCAT('What emotion is expressed here? One word: ', user_input),
-        'sibiji'
-    ) as emotion,
-    created_at
-FROM {{ ref('conversation_history') }}`,
-        materialization: 'view',
-        npc: 'sibiji'
-    },
-    {
-        id: 'example-topic-clustering',
-        name: 'topic_clusters',
-        description: 'Group conversations by topic using AI clustering',
-        sql: `-- npcsql model: Topic clustering
-{{ config(materialized='table') }}
-
-SELECT
-    id,
-    user_input,
-    nql.identify_groups(user_input, 'sibiji', 5) as topic_id,
-    nql.generate_groups(
-        user_input,
-        'sibiji',
-        'Generate a short topic label for this text'
-    ) as topic_label
-FROM {{ ref('conversation_history') }}
-WHERE LENGTH(user_input) > 50`,
-        materialization: 'table',
-        npc: 'sibiji'
-    },
-    {
-        id: 'example-knowledge-synthesis',
-        name: 'knowledge_base',
-        description: 'Synthesize knowledge from multiple sources',
-        sql: `-- npcsql model: Knowledge synthesis
-{{ config(materialized='table') }}
-
-WITH facts AS (
-    SELECT * FROM {{ ref('daily_facts') }}
+WITH unlinked AS (
+    SELECT f.statement, f.source_text, f.type
+    FROM kg_facts f
+    LEFT JOIN kg_links l ON l.source = f.statement AND l.type = 'fact_to_concept'
+    WHERE l.source IS NULL
 ),
-summaries AS (
-    SELECT * FROM {{ ref('conversation_summaries') }}
+all_facts AS (
+    SELECT statement, source_text FROM kg_facts
 )
+SELECT
+    u.statement,
+    nql.generate_groups(u.statement) as new_concepts,
+    nql.zoom_in(u.statement || ' context: ' || COALESCE(u.source_text, '')) as implied_facts,
+    nql.synthesize(
+        (SELECT GROUP_CONCAT(a.statement, '\\n') FROM all_facts a LIMIT 50)
+    ) as synthesis
+FROM unlinked u`,
+    },
+    {
+        id: 'kg_dream', name: 'kg_dream',
+        description: 'Creative KG synthesis — cross-pollinate concepts, generate new connections',
+        materialization: 'table', schedule: '0 4 * * 0',
+        sql: `{{ config(materialized='table') }}
+
+WITH seed_concepts AS (
+    SELECT name, team_name, npc_name
+    FROM kg_concepts
+    ORDER BY RANDOM() LIMIT 5
+),
+concept_facts AS (
+    SELECT c.name as concept, GROUP_CONCAT(f.statement, '\\n') as related_facts
+    FROM seed_concepts c
+    JOIN kg_links l ON l.target = c.name AND l.type = 'fact_to_concept'
+    JOIN kg_facts f ON f.statement = l.source
+    GROUP BY c.name
+)
+SELECT
+    concept,
+    nql.synthesize(related_facts) as cross_synthesis,
+    nql.zoom_in(related_facts) as new_inferences,
+    nql.abstract(related_facts) as higher_abstractions
+FROM concept_facts`,
+    },
+    {
+        id: 'jinx_activity', name: 'jinx_activity',
+        description: 'Jinx execution stats — which jinxs run most, by which NPCs, error rates',
+        materialization: 'table', schedule: '0 0 * * 1',
+        sql: `{{ config(materialized='table') }}
 
 SELECT
-    DATE('now') as synthesis_date,
-    nql.synthesize(
-        GROUP_CONCAT(f.daily_facts, '\\n'),
-        'sibiji',
-        'Create a unified knowledge summary from these facts'
-    ) as synthesized_knowledge,
-    nql.harmonize(
-        GROUP_CONCAT(s.summary, '\\n'),
-        'sibiji'
-    ) as harmonized_view
-FROM facts f, summaries s
-WHERE f.fact_date >= DATE('now', '-30 days')`,
-        materialization: 'table',
-        schedule: '0 0 * * 0',
-        npc: 'sibiji'
+    jinx_name,
+    npc,
+    COUNT(*) as runs,
+    SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as ok,
+    SUM(CASE WHEN status != 'success' AND status IS NOT NULL THEN 1 ELSE 0 END) as errors,
+    ROUND(AVG(duration_ms)) as avg_ms,
+    MIN(timestamp) as first_run,
+    MAX(timestamp) as last_run
+FROM jinx_executions
+GROUP BY jinx_name, npc
+ORDER BY runs DESC`,
     },
 ];
 
-const CronDaemonPanel = ({
-    isOpen = true,
-    onClose,
-    currentPath,
-    npcList = [],
-    jinxList = [],
-    isPane = false,
-    isGlobal = false
+// ─── Parsers for system data ─────────────────────────────────────────
+type ServiceInfo = { unit: string; load: string; active: string; sub: string; description: string };
+type TimerInfo = { unit: string; next: string; left: string; passed: string };
+type CronEntry = { schedule: string; command: string };
+
+const parseServices = (raw: string): ServiceInfo[] => {
+    if (!raw?.trim()) return [];
+    return raw.split('\n')
+        .filter(l => l.trim() && !l.startsWith('UNIT') && !l.startsWith(' ') && !l.includes('listed.') && !l.includes('loaded units'))
+        .map(l => { const p = l.trim().split(/\s+/); return p.length >= 4 ? { unit: p[0].replace('.service',''), load: p[1], active: p[2], sub: p[3], description: p.slice(4).join(' ') } : null; })
+        .filter(Boolean) as ServiceInfo[];
+};
+
+const parseTimers = (raw: string): TimerInfo[] => {
+    if (!raw?.trim()) return [];
+    return raw.split('\n')
+        .filter(l => l.trim() && !l.startsWith('NEXT') && !l.includes('timers listed') && !l.startsWith('Pass'))
+        .map(l => {
+            const tm = l.match(/(\S+)\.timer/); if (!tm) return null;
+            const left = l.match(/(\d+\S*\s+\S*?\s*left)/i)?.[1]?.trim() || '';
+            const passed = l.match(/(\d+\S*\s+\S*?\s*ago)/i)?.[1]?.trim() || '';
+            const next = l.match(/(\w{3}\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+\w+).*?left/)?.[1] || '';
+            return { unit: tm[1], next, left, last: '', passed };
+        }).filter(Boolean) as TimerInfo[];
+};
+
+const parseCrontab = (raw: string): CronEntry[] => {
+    if (!raw?.trim()) return [];
+    return raw.split('\n')
+        .filter(l => l.trim() && !l.startsWith('#') && !/^(SHELL|PATH|MAILTO|HOME)/.test(l))
+        .map(l => { const p = l.trim().split(/\s+/); return p.length >= 6 ? { schedule: p.slice(0,5).join(' '), command: p.slice(5).join(' ') } : null; })
+        .filter(Boolean) as CronEntry[];
+};
+
+// ─── Reusable UI ─────────────────────────────────────────────────────
+const ExpandRow = ({ header, children, defaultOpen = false }: { header: React.ReactNode; children: React.ReactNode; defaultOpen?: boolean }) => {
+    const [open, setOpen] = useState(defaultOpen);
+    return (
+        <div className="rounded-lg theme-bg-primary border theme-border hover:border-blue-500/30 transition-colors overflow-hidden">
+            <button onClick={() => setOpen(!open)} className="w-full flex items-center gap-2 px-3 py-2 text-left cursor-pointer">
+                {open ? <ChevronDown size={12} className="text-gray-500 flex-shrink-0" /> : <ChevronRight size={12} className="text-gray-500 flex-shrink-0" />}
+                <div className="flex-1 min-w-0 flex items-center gap-2">{header}</div>
+            </button>
+            {open && <div className="px-3 pb-3 pt-1 border-t theme-border">{children}</div>}
+        </div>
+    );
+};
+
+const Section = ({ title, count, icon: Icon, children, defaultOpen = true, actions }: {
+    title: string; count?: number; icon?: any; children: React.ReactNode; defaultOpen?: boolean; actions?: React.ReactNode;
 }) => {
-    // State
-    const [activeTab, setActiveTab] = useState<'cron' | 'daemons' | 'models' | 'examples' | 'system'>('cron');
-    const [cronJobs, setCronJobs] = useState<CronJob[]>([]);
-    const [daemons, setDaemons] = useState<Daemon[]>([]);
-    const [systemCron, setSystemCron] = useState<SystemCronJob[]>([]);
+    const [open, setOpen] = useState(defaultOpen);
+    return (
+        <div className="mb-3">
+            <div className="flex items-center gap-1.5 mb-1.5">
+                <button onClick={() => setOpen(!open)} className="flex items-center gap-1.5 text-xs font-medium text-gray-400 hover:text-gray-200">
+                    {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                    {Icon && <Icon size={12} />}
+                    {title}
+                    {count != null && <span className="text-[10px] text-gray-600">({count})</span>}
+                </button>
+                {actions && <div className="ml-auto flex items-center gap-1">{actions}</div>}
+            </div>
+            {open && <div className="space-y-1">{children}</div>}
+        </div>
+    );
+};
+
+const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
+    <div className="flex items-start gap-2 text-xs">
+        <span className="text-gray-500 w-20 flex-shrink-0 pt-0.5">{label}</span>
+        <div className="flex-1 min-w-0">{children}</div>
+    </div>
+);
+
+const inputCls = "w-full px-2 py-1.5 text-xs theme-bg-primary border theme-border rounded font-mono focus:border-blue-500 focus:outline-none";
+
+// ─── Main Component ──────────────────────────────────────────────────
+const CronDaemonPanel = ({
+    isOpen = true, onClose, currentPath, npcList = [], jinxList = [],
+    isPane = false, isGlobal = false,
+}: {
+    isOpen?: boolean; onClose?: () => void; currentPath?: string;
+    npcList?: any[]; jinxList?: any[]; isPane?: boolean; isGlobal?: boolean;
+}) => {
+    const api = (window as any).api;
+    const [activeTab, setActiveTab] = useState<'jobs' | 'daemons' | 'nql'>('jobs');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [searchQuery, setSearchQuery] = useState('');
-    const [testOutput, setTestOutput] = useState<string | null>(null);
-    const [testRunning, setTestRunning] = useState(false);
+    const [filter, setFilter] = useState('');
 
-    // SQL Models state
-    const [sqlModels, setSqlModels] = useState<SqlModel[]>([]);
-    const [selectedModel, setSelectedModel] = useState<SqlModel | null>(null);
-    const [isEditingModel, setIsEditingModel] = useState(false);
-    const [modelName, setModelName] = useState('');
-    const [modelDescription, setModelDescription] = useState('');
-    const [modelSql, setModelSql] = useState('');
-    const [modelSchedule, setModelSchedule] = useState('');
-    const [modelMaterialization, setModelMaterialization] = useState<'view' | 'table' | 'incremental'>('table');
-    const [modelNpc, setModelNpc] = useState('');
-    const [selectedDatabase, setSelectedDatabase] = useState<string>('~/npcsh_history.db');
-    const [availableDatabases, setAvailableDatabases] = useState<{ name: string; path: string }[]>([
-        { name: 'Global History (npcsh_history.db)', path: '~/npcsh_history.db' }
-    ]);
-    const [modelRunResult, setModelRunResult] = useState<any>(null);
+    // ── Jobs state ──
+    const [jobs, setJobs] = useState<{ name: string; active: boolean }[]>([]);
+    const [jobStatuses, setJobStatuses] = useState<Record<string, any>>({});
+    const [showAddJob, setShowAddJob] = useState(false);
+    const [newJobName, setNewJobName] = useState('');
+    const [newJobSchedule, setNewJobSchedule] = useState('0 0 * * *');
+    const [newJobCommand, setNewJobCommand] = useState('');
+    const [newJobNpc, setNewJobNpc] = useState('');
+    const [newJobJinx, setNewJobJinx] = useState('');
 
-    // Edit states
-    const [editingCronId, setEditingCronId] = useState<string | null>(null);
-    const [editingDaemonId, setEditingDaemonId] = useState<string | null>(null);
-    const [editedCron, setEditedCron] = useState<CronJob | null>(null);
-
-    // New job form
-    const [showAddCron, setShowAddCron] = useState(false);
+    // ── Daemons state ──
+    const [appDaemons, setAppDaemons] = useState<any[]>([]);
+    const [systemData, setSystemData] = useState<any>(null);
+    const [systemDaemons, setSystemDaemons] = useState<any>(null);
     const [showAddDaemon, setShowAddDaemon] = useState(false);
-    const [newCron, setNewCron] = useState({
-        schedule: '* * * * *',
-        command: '',
-        commandType: 'bash' as 'bash' | 'python' | 'npc' | 'sql-model' | 'custom',
-        npc: '',
-        jinx: '',
-        sqlModelId: '',
-        sqlModelName: '',
-        targetDb: '~/npcsh_history.db',
-        description: ''
-    });
-    const [newDaemon, setNewDaemon] = useState({
-        name: '',
-        command: '',
-        commandType: 'bash' as 'bash' | 'python' | 'npc' | 'custom',
-        npc: '',
-        jinx: ''
-    });
+    const [newDaemonName, setNewDaemonName] = useState('');
+    const [newDaemonCommand, setNewDaemonCommand] = useState('');
+    const [newDaemonNpc, setNewDaemonNpc] = useState('');
 
-    // Available SQL Models for scheduling
-    const [availableSqlModels, setAvailableSqlModels] = useState<SqlModel[]>([]);
+    // ── NQL state ──
+    const [sqlModels, setSqlModels] = useState<SqlModel[]>([]);
+    const [showNewModel, setShowNewModel] = useState(false);
+    const [editModel, setEditModel] = useState<SqlModel | null>(null);
+    const [modelForm, setModelForm] = useState({ name: '', sql: '', description: '', materialization: 'table' as string, npc: '' });
+    const [modelRunResult, setModelRunResult] = useState<Record<string, string>>({});
 
-    // Logs
-    const [showLogs, setShowLogs] = useState<string | null>(null);
-    const [logs, setLogs] = useState<string>('');
+    // ── Service inspection state ──
+    const [serviceInfo, setServiceInfo] = useState<Record<string, { unit_file?: string; journal?: string; loading?: boolean }>>({});
 
-    // Fetch data
-    const fetchData = useCallback(async () => {
-        if (!currentPath) return;
-        setLoading(true);
-        setError(null);
+    // ═══════════════════════════════════════════════════════════════════
+    // DATA FETCHING — all real APIs
+    // ═══════════════════════════════════════════════════════════════════
+    const fetchJobs = useCallback(async () => {
         try {
-            const response = await (window as any).api?.getCronDaemons?.(currentPath);
-            if (response?.error) {
-                throw new Error(response.error);
-            }
-            setCronJobs(response?.cronJobs || []);
-            setDaemons(response?.daemons || []);
+            const r = await api?.getCronJobs?.();
+            if (Array.isArray(r)) setJobs(r);
+        } catch {}
+    }, []);
 
-            try {
-                const sysResponse = await (window as any).api?.getSystemCrontab?.();
-                setSystemCron(sysResponse?.jobs || []);
-            } catch {
-                // System crontab not available
-            }
-        } catch (err: any) {
-            setError(err.message || 'Failed to fetch cron jobs and daemons');
-        } finally {
-            setLoading(false);
-        }
+    const fetchJobStatus = useCallback(async (name: string) => {
+        try {
+            const r = await api?.jobStatus?.(name);
+            if (r) setJobStatuses(prev => ({ ...prev, [name]: r }));
+        } catch {}
+    }, []);
+
+    const fetchDaemons = useCallback(async () => {
+        try {
+            const [local, system, crontab] = await Promise.all([
+                api?.getDaemons?.(),
+                api?.getSystemDaemons?.(),
+                api?.getCrontab?.(),
+            ]);
+            if (Array.isArray(local)) setAppDaemons(local);
+            if (system && !system.error) setSystemDaemons(system);
+            if (crontab && !crontab.error) setSystemData(crontab);
+        } catch {}
+    }, []);
+
+    const fetchModels = useCallback(async () => {
+        try {
+            const [g, p] = await Promise.all([
+                api?.getSqlModelsGlobal?.(),
+                currentPath ? api?.getSqlModelsProject?.(currentPath) : null,
+            ]);
+            const all: SqlModel[] = [];
+            if (g?.models) all.push(...g.models.map((m: any) => ({ ...m, isGlobal: true })));
+            if (p?.models) all.push(...p.models.map((m: any) => ({ ...m, isGlobal: false })));
+            setSqlModels(all);
+        } catch {}
     }, [currentPath]);
 
-    // Fetch SQL models for scheduling
-    const fetchSqlModels = useCallback(async () => {
-        try {
-            // Fetch both global and project models
-            const globalRes = await (window as any).api?.getSqlModelsGlobal?.();
-            const projectRes = currentPath ? await (window as any).api?.getSqlModelsProject?.(currentPath) : null;
+    const fetchAll = useCallback(async () => {
+        setLoading(true); setError(null);
+        await Promise.all([fetchJobs(), fetchDaemons(), fetchModels()]);
+        setLoading(false);
+    }, [fetchJobs, fetchDaemons, fetchModels]);
 
-            const models: SqlModel[] = [];
-            if (globalRes?.models) {
-                models.push(...globalRes.models.map((m: any) => ({ ...m, isGlobal: true })));
+    useEffect(() => { if (isOpen) fetchAll(); }, [isOpen, fetchAll]);
+
+    const fetchServiceInfo = useCallback(async (unit: string) => {
+        // key = what we use for serviceInfo[key] lookup — must match ExpandRow's serviceInfo[s.unit]
+        const key = unit.replace(/\.(service|timer)$/, '');
+        setServiceInfo(prev => ({ ...prev, [key]: { ...prev[key], loading: true } }));
+        try {
+            // Try the unit as-is first (might be foo.timer), fallback to foo.service
+            const unitArg = unit.includes('.') ? unit : `${unit}.service`;
+            const r = await api?.getServiceInfo?.(unitArg);
+            if (r && !r.error) {
+                setServiceInfo(prev => ({ ...prev, [key]: {
+                    unit_file: r.unit_file || '(no unit file found)',
+                    journal: r.journal || '(no journal entries)',
+                    loading: false
+                } }));
+            } else {
+                setServiceInfo(prev => ({ ...prev, [key]: {
+                    unit_file: `Error: ${r?.error || 'API call failed'}`,
+                    journal: '', loading: false
+                } }));
             }
-            if (projectRes?.models) {
-                models.push(...projectRes.models.map((m: any) => ({ ...m, isGlobal: false })));
-            }
-            setAvailableSqlModels(models);
-        } catch (err) {
-            console.error('Failed to fetch SQL models:', err);
+        } catch (e: any) {
+            setServiceInfo(prev => ({ ...prev, [key]: {
+                unit_file: `Error: ${e.message}`,
+                journal: '', loading: false
+            } }));
         }
-    }, [currentPath]);
+    }, []);
 
-    useEffect(() => {
-        if (isOpen && currentPath) {
-            fetchData();
-            fetchSqlModels();
-        }
-    }, [isOpen, currentPath, fetchData, fetchSqlModels]);
+    // ═══════════════════════════════════════════════════════════════════
+    // ACTIONS — all real APIs
+    // ═══════════════════════════════════════════════════════════════════
 
-    // Handle Escape key
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'Escape' && !isPane) onClose?.();
-        };
-        if (isOpen) {
-            document.addEventListener('keydown', handleKeyDown);
-            return () => document.removeEventListener('keydown', handleKeyDown);
-        }
-    }, [isOpen, onClose, isPane]);
-
-    // Test command
-    const handleTestCommand = async (command: string, commandType: string) => {
-        setTestRunning(true);
-        setTestOutput('Running...');
+    // Jobs
+    const scheduleJob = async (name: string, schedule: string, command: string) => {
+        if (!name || !schedule || !command) return;
+        setLoading(true); setError(null);
         try {
-            const res = await (window as any).api?.testCommand?.({ command, commandType, path: currentPath });
-            setTestOutput(res?.output || res?.error || 'No output');
-        } catch (err: any) {
-            setTestOutput(`Error: ${err.message}`);
-        } finally {
-            setTestRunning(false);
-        }
+            const r = await api?.scheduleJob?.({ schedule, command, jobName: name });
+            if (r?.success) { setShowAddJob(false); setNewJobName(''); setNewJobCommand(''); await fetchJobs(); }
+            else setError(r?.message || r?.error || 'Failed to schedule');
+        } catch (e: any) { setError(e.message); }
+        finally { setLoading(false); }
     };
 
-    // Cron job actions
-    const handleAddCronJob = async () => {
-        if (!newCron.command.trim()) return;
+    const removeJob = async (name: string) => {
+        if (!window.confirm(`Remove job "${name}"?`)) return;
         setLoading(true);
         try {
-            const res = await (window as any).api?.addCronJob?.({
-                path: currentPath,
-                schedule: newCron.schedule,
-                command: newCron.command,
-                commandType: newCron.commandType,
-                npc: newCron.commandType === 'npc' ? newCron.npc : undefined,
-                jinx: newCron.jinx,
-                description: newCron.description
-            });
-            if (res?.error) throw new Error(res.error);
-            await fetchData();
-            setNewCron({ schedule: '* * * * *', command: '', commandType: 'bash', npc: '', jinx: '', description: '' });
-            setShowAddCron(false);
-        } catch (err: any) {
-            setError(err.message);
-        } finally {
-            setLoading(false);
-        }
+            const r = await api?.unscheduleJob?.(name);
+            if (!r?.success) setError(r?.message || 'Failed');
+            await fetchJobs();
+        } catch (e: any) { setError(e.message); }
+        finally { setLoading(false); }
     };
 
-    const handleUpdateCronJob = async (job: CronJob) => {
+    // Daemons
+    const startDaemon = async (name: string, command: string, npc?: string) => {
+        if (!name || !command) return;
         setLoading(true);
         try {
-            const res = await (window as any).api?.updateCronJob?.(job);
-            if (res?.error) throw new Error(res.error);
-            await fetchData();
-            setEditingCronId(null);
-            setEditedCron(null);
-        } catch (err: any) {
-            setError(err.message);
-        } finally {
-            setLoading(false);
-        }
+            const r = await api?.addDaemon?.({ path: currentPath, name, command, npc: npc || undefined });
+            if (r?.success) { setShowAddDaemon(false); setNewDaemonName(''); setNewDaemonCommand(''); await fetchDaemons(); }
+            else setError(r?.error || 'Failed');
+        } catch (e: any) { setError(e.message); }
+        finally { setLoading(false); }
     };
 
-    const handleToggleCronJob = async (job: CronJob) => {
-        await handleUpdateCronJob({ ...job, enabled: !job.enabled });
+    const killDaemon = async (id: string) => {
+        if (!window.confirm('Kill this daemon?')) return;
+        try { await api?.removeDaemon?.(id); await fetchDaemons(); }
+        catch (e: any) { setError(e.message); }
     };
 
-    const handleRemoveCronJob = async (jobId: string) => {
-        if (!window.confirm('Remove this cron job?')) return;
+    const editDaemon = async (d: any) => {
+        // Kill the old one, pre-fill form for restart
+        try { await api?.removeDaemon?.(d.id); await fetchDaemons(); } catch {}
+        setNewDaemonName(d.name || '');
+        setNewDaemonCommand(d.command || '');
+        setNewDaemonNpc(d.npc || '');
+        setShowAddDaemon(true);
+    };
+
+    // SQL Models
+    const saveModel = async () => {
+        const { name, sql, description, materialization, npc } = modelForm;
+        if (!name || !sql) return;
         setLoading(true);
         try {
-            const res = await (window as any).api?.removeCronJob?.(jobId);
-            if (res?.error) throw new Error(res.error);
-            await fetchData();
-        } catch (err: any) {
-            setError(err.message);
-        } finally {
-            setLoading(false);
-        }
+            const data = { id: name, name, sql, description, materialization, npc };
+            const r = isGlobal || !currentPath
+                ? await api?.saveSqlModelGlobal?.(data)
+                : await api?.saveSqlModelProject?.({ path: currentPath, model: data });
+            if (r?.success) { setShowNewModel(false); setEditModel(null); setModelForm({ name: '', sql: '', description: '', materialization: 'table', npc: '' }); await fetchModels(); }
+            else setError(r?.error || 'Failed to save');
+        } catch (e: any) { setError(e.message); }
+        finally { setLoading(false); }
     };
 
-    // Copy example to real jobs
-    const handleCopyExample = async (example: CronJob | Daemon, type: 'cron' | 'daemon') => {
-        if (type === 'cron') {
-            const ex = example as CronJob;
-            setNewCron({
-                schedule: ex.schedule,
-                command: ex.command,
-                commandType: ex.commandType,
-                npc: ex.npc || '',
-                jinx: ex.jinx || '',
-                description: ex.description || ''
-            });
-            setActiveTab('cron');
-            setShowAddCron(true);
-        } else {
-            const ex = example as Daemon;
-            setNewDaemon({
-                name: ex.name,
-                command: ex.command,
-                commandType: ex.commandType,
-                npc: ex.npc || '',
-                jinx: ex.jinx || ''
-            });
-            setActiveTab('daemons');
-            setShowAddDaemon(true);
-        }
-    };
-
-    // Daemon actions
-    const handleAddDaemon = async () => {
-        if (!newDaemon.name.trim() || !newDaemon.command.trim()) return;
-        setLoading(true);
+    const runModel = async (model: SqlModel) => {
+        setModelRunResult(prev => ({ ...prev, [model.id]: 'Running...' }));
         try {
-            const res = await (window as any).api?.addDaemon?.({
-                path: currentPath,
-                name: newDaemon.name,
-                command: newDaemon.command,
-                commandType: newDaemon.commandType,
-                npc: newDaemon.commandType === 'npc' ? newDaemon.npc : undefined,
-                jinx: newDaemon.jinx
-            });
-            if (res?.error) throw new Error(res.error);
-            await fetchData();
-            setNewDaemon({ name: '', command: '', commandType: 'bash', npc: '', jinx: '' });
-            setShowAddDaemon(false);
-        } catch (err: any) {
-            setError(err.message);
-        } finally {
-            setLoading(false);
-        }
+            const r = await api?.runSqlModel?.({ path: currentPath, modelId: model.name, isGlobal: model.isGlobal ?? true });
+            setModelRunResult(prev => ({ ...prev, [model.id]: r?.success ? (r.message || `Done. ${r.rows} rows.`) : `Error: ${r?.error}` }));
+        } catch (e: any) { setModelRunResult(prev => ({ ...prev, [model.id]: `Error: ${e.message}` })); }
     };
 
-    const handleDaemonAction = async (daemonId: string, action: 'start' | 'stop' | 'restart') => {
-        setLoading(true);
+    const deleteModel = async (model: SqlModel) => {
+        if (!window.confirm(`Delete model "${model.name}"?`)) return;
         try {
-            const res = await (window as any).api?.controlDaemon?.({ id: daemonId, action });
-            if (res?.error) throw new Error(res.error);
-            await fetchData();
-        } catch (err: any) {
-            setError(err.message);
-        } finally {
-            setLoading(false);
-        }
+            const r = model.isGlobal
+                ? await api?.deleteSqlModelGlobal?.(model.id || model.name)
+                : await api?.deleteSqlModelProject?.({ path: currentPath, modelId: model.id || model.name });
+            if (r?.success) await fetchModels();
+            else setError(r?.error || 'Failed');
+        } catch (e: any) { setError(e.message); }
     };
 
-    const handleRemoveDaemon = async (daemonId: string) => {
-        if (!window.confirm('Remove this daemon?')) return;
-        setLoading(true);
+    const saveExampleModel = async (ex: SqlModel) => {
         try {
-            const res = await (window as any).api?.removeDaemon?.(daemonId);
-            if (res?.error) throw new Error(res.error);
-            await fetchData();
-        } catch (err: any) {
-            setError(err.message);
-        } finally {
-            setLoading(false);
-        }
+            const r = await api?.saveSqlModelGlobal?.({ id: ex.name, name: ex.name, sql: ex.sql, description: ex.description, materialization: ex.materialization, npc: ex.npc });
+            if (r?.success) await fetchModels();
+            else setError(r?.error || 'Failed');
+        } catch (e: any) { setError(e.message); }
     };
 
-    const handleViewLogs = async (daemonId: string) => {
-        try {
-            const res = await (window as any).api?.getDaemonLogs?.(daemonId);
-            setLogs(res?.logs || 'No logs available');
-            setShowLogs(daemonId);
-        } catch {
-            setLogs('Failed to fetch logs');
-            setShowLogs(daemonId);
-        }
-    };
-
-    // Parse cron schedule to human readable
-    const parseCronSchedule = (schedule: string): string => {
-        const preset = SCHEDULE_PRESETS.find(p => p.value === schedule);
-        if (preset) return preset.label;
-        return schedule;
-    };
-
-    // Get command type icon
-    const getCommandTypeIcon = (type: string) => {
-        switch (type) {
-            case 'bash': return <Terminal size={12} className="text-green-400" />;
-            case 'python': return <FileCode size={12} className="text-yellow-400" />;
-            case 'npc': return <Bot size={12} className="text-purple-400" />;
-            case 'sql-model': return <Database size={12} className="text-cyan-400" />;
-            default: return <Code size={12} className="text-gray-400" />;
-        }
-    };
-
-    // Filter items
-    const filteredCronJobs = cronJobs.filter(job =>
-        job.command.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        job.description?.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-
-    const filteredDaemons = daemons.filter(daemon =>
-        daemon.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        daemon.command.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    // ── Parsed system data ──
+    const parsedUserCron = useMemo(() => parseCrontab(systemData?.user_crontab || ''), [systemData]);
+    const parsedSysCron = useMemo(() => parseCrontab(systemData?.system_crontab || ''), [systemData]);
+    const parsedTimers = useMemo(() => parseTimers(systemData?.timers || ''), [systemData]);
+    const parsedUserSvcs = useMemo(() => parseServices(systemData?.services || ''), [systemData]);
+    const parsedRunningSvcs = useMemo(() => parseServices(systemDaemons?.services || ''), [systemDaemons]);
+    const parsedDaemonUserSvcs = useMemo(() => parseServices(systemDaemons?.user_services || ''), [systemDaemons]);
 
     if (!isOpen && !isPane) return null;
 
+    // ═══════════════════════════════════════════════════════════════════
+    // RENDER
+    // ═══════════════════════════════════════════════════════════════════
     const content = (
         <div className="flex flex-col h-full">
             {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b theme-border flex-shrink-0">
-                <div className="flex items-center gap-3">
-                    <Clock size={20} className="text-blue-400" />
-                    <h2 className="text-lg font-semibold">Scheduler & Daemons</h2>
+            <div className="flex items-center justify-between px-4 py-3 border-b theme-border flex-shrink-0">
+                <div className="flex items-center gap-2.5">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-400">
+                        <rect x="5" y="10" width="5" height="12" rx="0.5" />
+                        <circle cx="7.5" cy="6" r="2" /><circle cx="9" cy="3" r="1.5" />
+                        <rect x="12" y="14" width="4" height="8" rx="0.5" />
+                        <rect x="18" y="16" width="3" height="6" rx="0.5" />
+                        <path d="M2 22h20" />
+                    </svg>
+                    <h2 className="text-base font-semibold">Scheduler & Processes</h2>
                 </div>
-                <div className="flex items-center gap-2">
-                    <button
-                        onClick={fetchData}
-                        disabled={loading}
-                        className="p-2 hover:bg-white/10 rounded transition-colors"
-                        title="Refresh"
-                    >
-                        <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+                <div className="flex items-center gap-1">
+                    <button onClick={fetchAll} disabled={loading} className="p-1.5 hover:bg-white/10 rounded" title="Refresh">
+                        <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
                     </button>
-                    {!isPane && onClose && (
-                        <button onClick={onClose} className="p-2 hover:bg-white/10 rounded">
-                            <X size={16} />
-                        </button>
-                    )}
+                    {!isPane && onClose && <button onClick={onClose} className="p-1.5 hover:bg-white/10 rounded"><X size={14} /></button>}
                 </div>
             </div>
 
             {/* Tabs */}
-            <div className="flex border-b theme-border flex-shrink-0 overflow-x-auto">
-                <button
-                    onClick={() => setActiveTab('cron')}
-                    className={`px-4 py-3 text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${
-                        activeTab === 'cron'
-                            ? 'border-b-2 border-blue-500 text-blue-400 bg-blue-500/10'
-                            : 'text-gray-400 hover:text-white hover:bg-white/5'
-                    }`}
-                >
-                    <Calendar size={16} />
-                    Cron ({cronJobs.length})
-                </button>
-                <button
-                    onClick={() => setActiveTab('daemons')}
-                    className={`px-4 py-3 text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${
-                        activeTab === 'daemons'
-                            ? 'border-b-2 border-purple-500 text-purple-400 bg-purple-500/10'
-                            : 'text-gray-400 hover:text-white hover:bg-white/5'
-                    }`}
-                >
-                    <Server size={16} />
-                    Daemons ({daemons.length})
-                </button>
-                <button
-                    onClick={() => setActiveTab('models')}
-                    className={`px-4 py-3 text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${
-                        activeTab === 'models'
-                            ? 'border-b-2 border-emerald-500 text-emerald-400 bg-emerald-500/10'
-                            : 'text-gray-400 hover:text-white hover:bg-white/5'
-                    }`}
-                >
-                    <Table size={16} />
-                    SQL Models ({sqlModels.length})
-                </button>
-                <button
-                    onClick={() => setActiveTab('examples')}
-                    className={`px-4 py-3 text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${
-                        activeTab === 'examples'
-                            ? 'border-b-2 border-amber-500 text-amber-400 bg-amber-500/10'
-                            : 'text-gray-400 hover:text-white hover:bg-white/5'
-                    }`}
-                >
-                    <Sparkles size={16} />
-                    Examples
-                </button>
-                <button
-                    onClick={() => setActiveTab('system')}
-                    className={`px-4 py-3 text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${
-                        activeTab === 'system'
-                            ? 'border-b-2 border-gray-500 text-gray-300 bg-gray-500/10'
-                            : 'text-gray-400 hover:text-white hover:bg-white/5'
-                    }`}
-                >
-                    <Terminal size={16} />
-                    System
-                </button>
-            </div>
-
-            {/* Search & Add */}
-            <div className="p-3 border-b theme-border flex-shrink-0">
-                <div className="flex gap-2">
-                    <div className="flex-1 relative">
-                        <input
-                            type="text"
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            placeholder="Search..."
-                            className="w-full pl-3 pr-3 py-2 text-sm bg-gray-800 border border-gray-600 rounded focus:border-blue-500 focus:outline-none"
-                        />
-                    </div>
-                    {activeTab === 'cron' && (
-                        <button
-                            onClick={() => setShowAddCron(!showAddCron)}
-                            className={`px-3 py-2 rounded text-sm font-medium flex items-center gap-1 ${
-                                showAddCron ? 'bg-blue-600 text-white' : 'bg-blue-600/20 text-blue-400 hover:bg-blue-600/30'
-                            }`}
-                        >
-                            <Plus size={16} /> Add Job
-                        </button>
-                    )}
-                    {activeTab === 'daemons' && (
-                        <button
-                            onClick={() => setShowAddDaemon(!showAddDaemon)}
-                            className={`px-3 py-2 rounded text-sm font-medium flex items-center gap-1 ${
-                                showAddDaemon ? 'bg-purple-600 text-white' : 'bg-purple-600/20 text-purple-400 hover:bg-purple-600/30'
-                            }`}
-                        >
-                            <Plus size={16} /> Add Daemon
-                        </button>
-                    )}
-                    {activeTab === 'models' && (
-                        <button
-                            onClick={() => setIsEditingModel(!isEditingModel)}
-                            className={`px-3 py-2 rounded text-sm font-medium flex items-center gap-1 ${
-                                isEditingModel ? 'bg-emerald-600 text-white' : 'bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30'
-                            }`}
-                        >
-                            <Plus size={16} /> New Model
-                        </button>
-                    )}
-                </div>
-            </div>
-
-            {/* Error */}
-            {error && (
-                <div className="mx-4 mt-3 p-3 bg-red-900/30 border border-red-700 rounded text-red-300 text-sm flex items-center gap-2">
-                    <AlertCircle size={16} />
-                    {error}
-                    <button onClick={() => setError(null)} className="ml-auto">
-                        <X size={14} />
+            <div className="flex border-b theme-border flex-shrink-0">
+                {([
+                    { id: 'jobs' as const, label: 'Jobs', icon: Zap },
+                    { id: 'daemons' as const, label: 'Daemons & System', icon: Activity },
+                    { id: 'nql' as const, label: 'NQL', icon: Database },
+                ]).map(t => (
+                    <button key={t.id} onClick={() => setActiveTab(t.id)}
+                        className={`px-4 py-2.5 text-sm font-medium transition-colors flex items-center gap-1.5 ${
+                            activeTab === t.id ? 'border-b-2 border-blue-500 text-blue-400' : 'text-gray-400 hover:text-white hover:bg-white/5'
+                        }`}>
+                        <t.icon size={14} />{t.label}
                     </button>
+                ))}
+            </div>
+
+            {error && (
+                <div className="mx-4 mt-2 p-2 bg-red-900/30 border border-red-700 rounded text-red-300 text-xs flex items-center gap-2">
+                    <AlertCircle size={14} /><span className="flex-1">{error}</span>
+                    <button onClick={() => setError(null)}><X size={12} /></button>
                 </div>
             )}
 
-            {/* Content */}
-            <div className="flex-1 overflow-y-auto p-4">
-                {/* Add Cron Form */}
-                {activeTab === 'cron' && showAddCron && (
-                    <div className="mb-4 p-4 bg-blue-900/20 border border-blue-500/30 rounded-lg">
-                        <h3 className="text-sm font-semibold text-blue-400 mb-3 flex items-center gap-2">
-                            <Plus size={16} /> New Scheduled Job
-                        </h3>
-                        <div className="space-y-3">
-                            {/* Command Type */}
-                            <div>
-                                <label className="text-xs text-gray-400 mb-1 block">Command Type</label>
-                                <div className="flex gap-2">
-                                    {(['bash', 'python', 'npc', 'custom'] as const).map(type => (
-                                        <button
-                                            key={type}
-                                            onClick={() => setNewCron({ ...newCron, commandType: type })}
-                                            className={`flex-1 px-3 py-2 text-xs rounded flex items-center justify-center gap-1 ${
-                                                newCron.commandType === type
-                                                    ? 'bg-blue-600 text-white'
-                                                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                                            }`}
-                                        >
-                                            {getCommandTypeIcon(type)}
-                                            {type.charAt(0).toUpperCase() + type.slice(1)}
-                                        </button>
-                                    ))}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+
+                {/* ═══════════════════ JOBS TAB ═══════════════════ */}
+                {activeTab === 'jobs' && (<>
+                    <div className="flex items-center gap-2">
+                        <div className="relative flex-1">
+                            <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500" />
+                            <input type="text" value={filter} onChange={e => setFilter(e.target.value)}
+                                placeholder="Filter..." className="w-full pl-6 pr-2 py-1.5 text-xs theme-bg-primary border theme-border rounded focus:border-blue-500 focus:outline-none" />
+                        </div>
+                        <button onClick={() => setShowAddJob(!showAddJob)}
+                            className={`px-2.5 py-1 rounded text-xs flex items-center gap-1 ${showAddJob ? 'bg-blue-600 text-white' : 'bg-blue-600/20 text-blue-400 hover:bg-blue-600/30'}`}>
+                            <Plus size={12} /> New Job
+                        </button>
+                    </div>
+
+                    {/* Add job form */}
+                    {showAddJob && (
+                        <div className="p-3 bg-blue-900/15 border border-blue-500/30 rounded-lg space-y-2">
+                            <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label className="text-[10px] text-gray-400 mb-0.5 block">Job Name</label>
+                                    <input type="text" value={newJobName} onChange={e => setNewJobName(e.target.value.replace(/[^a-zA-Z0-9_-]/g,'_'))} placeholder="my_job" className={inputCls} />
                                 </div>
-                            </div>
-                            {/* Schedule */}
-                            <div>
-                                <label className="text-xs text-gray-400 mb-1 block">Schedule</label>
-                                <div className="flex gap-2">
-                                    <input
-                                        type="text"
-                                        value={newCron.schedule}
-                                        onChange={(e) => setNewCron({ ...newCron, schedule: e.target.value })}
-                                        placeholder="* * * * *"
-                                        className="flex-1 px-3 py-2 text-sm bg-gray-800 border border-gray-600 rounded font-mono focus:border-blue-500 focus:outline-none"
-                                    />
-                                    <select
-                                        onChange={(e) => e.target.value && setNewCron({ ...newCron, schedule: e.target.value })}
-                                        className="px-2 py-2 text-sm bg-gray-800 border border-gray-600 rounded focus:border-blue-500 focus:outline-none"
-                                        value=""
-                                    >
-                                        <option value="">Presets...</option>
-                                        {SCHEDULE_PRESETS.map(p => (
-                                            <option key={p.value} value={p.value}>{p.label}</option>
-                                        ))}
+                                <div>
+                                    <label className="text-[10px] text-gray-400 mb-0.5 block">Schedule</label>
+                                    <select value={SCHEDULE_PRESETS.some(p => p.value === newJobSchedule) ? newJobSchedule : '__custom'}
+                                        onChange={e => { if (e.target.value !== '__custom') setNewJobSchedule(e.target.value); }}
+                                        className={inputCls}>
+                                        {SCHEDULE_PRESETS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+                                        <option value="__custom">Custom</option>
                                     </select>
-                                </div>
-                                <div className="text-[10px] text-gray-500 mt-1">
-                                    min hour day month weekday (e.g., "0 9 * * 1-5" = 9am weekdays)
+                                    {!SCHEDULE_PRESETS.some(p => p.value === newJobSchedule) && (
+                                        <input type="text" value={newJobSchedule} onChange={e => setNewJobSchedule(e.target.value)} placeholder="* * * * *" className={inputCls + ' mt-1'} />
+                                    )}
                                 </div>
                             </div>
-                            {/* Command */}
+                            <div className={`grid gap-2 ${npcList.length > 0 && jinxList.length > 0 ? 'grid-cols-3' : npcList.length > 0 || jinxList.length > 0 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                                {npcList.length > 0 && (
+                                    <div>
+                                        <label className="text-[10px] text-gray-400 mb-0.5 block">NPC</label>
+                                        <select value={newJobNpc} onChange={e => setNewJobNpc(e.target.value)} className={inputCls}>
+                                            <option value="">None</option>
+                                            {npcList.map((n: any) => <option key={n.name} value={n.name}>{n.name}</option>)}
+                                        </select>
+                                    </div>
+                                )}
+                                {jinxList.length > 0 && (
+                                    <div>
+                                        <label className="text-[10px] text-gray-400 mb-0.5 block">Jinx</label>
+                                        <select value={newJobJinx} onChange={e => {
+                                            setNewJobJinx(e.target.value);
+                                            if (e.target.value && !newJobCommand) setNewJobCommand(e.target.value);
+                                            if (e.target.value && !newJobName) setNewJobName(e.target.value.replace(/[^a-zA-Z0-9_-]/g, '_'));
+                                        }} className={inputCls}>
+                                            <option value="">None</option>
+                                            {jinxList.map((j: any) => <option key={j.name || j} value={j.name || j}>{j.name || j}</option>)}
+                                        </select>
+                                    </div>
+                                )}
+                                {sqlModels.length > 0 && (
+                                    <div>
+                                        <label className="text-[10px] text-gray-400 mb-0.5 block">SQL Model</label>
+                                        <select value="" onChange={e => {
+                                            if (e.target.value) {
+                                                setNewJobCommand(`run:${e.target.value}`);
+                                                if (!newJobName) setNewJobName(`run_${e.target.value}`);
+                                            }
+                                        }} className={inputCls}>
+                                            <option value="">Pick a model...</option>
+                                            {sqlModels.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
+                                        </select>
+                                    </div>
+                                )}
+                            </div>
                             <div>
-                                <label className="text-xs text-gray-400 mb-1 block">Command</label>
-                                <div className="flex gap-2">
-                                    <textarea
-                                        value={newCron.command}
-                                        onChange={(e) => setNewCron({ ...newCron, command: e.target.value })}
-                                        placeholder={
-                                            newCron.commandType === 'bash' ? 'echo "Hello" >> ~/log.txt' :
-                                            newCron.commandType === 'python' ? 'python3 ~/scripts/myscript.py --arg value' :
-                                            newCron.commandType === 'npc' ? '/sample "generate a daily report"' :
-                                            'your command here'
-                                        }
-                                        className="flex-1 px-3 py-2 text-sm bg-gray-800 border border-gray-600 rounded font-mono focus:border-blue-500 focus:outline-none resize-none"
-                                        rows={2}
-                                    />
-                                    <button
-                                        onClick={() => handleTestCommand(newCron.command, newCron.commandType)}
-                                        disabled={!newCron.command.trim() || testRunning}
-                                        className="px-3 py-2 bg-green-600/20 text-green-400 hover:bg-green-600/30 rounded flex items-center gap-1 text-xs disabled:opacity-50"
-                                        title="Test command"
-                                    >
-                                        <TestTube size={14} />
-                                        Test
+                                <label className="text-[10px] text-gray-400 mb-0.5 block">Command</label>
+                                <textarea value={newJobCommand} onChange={e => setNewJobCommand(e.target.value)}
+                                    placeholder={'run:model_name, jinx name + args, or a task description'}
+                                    className={inputCls + ' min-h-[50px] resize-y'} rows={2} />
+                            </div>
+                            <div className="flex gap-2">
+                                <button onClick={() => {
+                                    let cmd = newJobCommand;
+                                    if (newJobNpc) cmd += ` --npc ${newJobNpc}`;
+                                    scheduleJob(newJobName, newJobSchedule, cmd);
+                                    setNewJobJinx('');
+                                }}
+                                    disabled={loading || !newJobName || !newJobCommand}
+                                    className="flex-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs disabled:opacity-50 flex items-center justify-center gap-1">
+                                    <Check size={12} /> Schedule
+                                </button>
+                                <button onClick={() => setShowAddJob(false)} className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-xs">Cancel</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Active jobs */}
+                    {jobs.length > 0 && (
+                        <Section title="Scheduled Jobs" count={jobs.length} icon={Clock}>
+                            {jobs.filter(j => !filter || j.name.toLowerCase().includes(filter.toLowerCase())).map(job => (
+                                <ExpandRow key={job.name} header={<>
+                                    <span className={`w-2 h-2 rounded-full flex-shrink-0 ${job.active ? 'bg-green-400' : 'bg-gray-500'}`} />
+                                    <span className="font-mono text-xs text-gray-200">{job.name}</span>
+                                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${job.active ? 'bg-green-900/30 text-green-400' : 'bg-gray-700 text-gray-400'}`}>
+                                        {job.active ? 'active' : 'inactive'}
+                                    </span>
+                                    <div className="ml-auto flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                                        <button onClick={() => fetchJobStatus(job.name)} className="p-1 text-gray-400 hover:text-blue-400 rounded" title="Load status"><Eye size={12} /></button>
+                                        <button onClick={() => removeJob(job.name)} className="p-1 text-gray-400 hover:text-red-400 rounded" title="Remove"><Trash2 size={12} /></button>
+                                    </div>
+                                </>}>
+                                    <div className="space-y-1.5">
+                                        {jobStatuses[job.name] ? (<>
+                                            <Field label="Status"><span className={`text-[10px] ${jobStatuses[job.name].active ? 'text-green-400' : 'text-gray-400'}`}>{jobStatuses[job.name].active ? 'Scheduled' : 'Inactive'}</span></Field>
+                                            <Field label="Log file"><span className="font-mono text-[10px] text-gray-400 select-all">{jobStatuses[job.name].log}</span></Field>
+                                            {jobStatuses[job.name].recent_log?.length > 0 ? (
+                                                <pre className="text-[10px] font-mono text-gray-400 whitespace-pre-wrap max-h-40 overflow-y-auto bg-black/20 rounded p-2 select-all mt-1">{jobStatuses[job.name].recent_log.join('')}</pre>
+                                            ) : <div className="text-[10px] text-gray-600 italic">No log output yet</div>}
+                                        </>) : (
+                                            <button onClick={() => fetchJobStatus(job.name)} className="text-[10px] text-blue-400 hover:text-blue-300 flex items-center gap-1">
+                                                <Eye size={10} /> Load status & logs
+                                            </button>
+                                        )}
+                                    </div>
+                                </ExpandRow>
+                            ))}
+                        </Section>
+                    )}
+
+                    {jobs.length === 0 && !loading && !showAddJob && (
+                        <div className="text-center py-6 text-gray-500 text-sm">
+                            <Zap size={20} className="mx-auto mb-2 text-gray-600" />
+                            No scheduled jobs. Create one or enable an example below.
+                        </div>
+                    )}
+
+                    {/* Example templates — one-click enable */}
+                    <Section title="Quick Enable" count={EXAMPLE_JOBS.filter(e => !jobs.some(j => j.name === e.name)).length} icon={Sparkles} defaultOpen={jobs.length === 0}>
+                        {EXAMPLE_JOBS.filter(e => !jobs.some(j => j.name === e.name)).map(ex => (
+                            <ExpandRow key={ex.name} header={<>
+                                <span className="font-mono text-xs text-gray-300">{ex.name}</span>
+                                <span className="text-[10px] text-gray-500">{humanSchedule(ex.schedule)}</span>
+                                <span className="text-[10px] text-gray-600 truncate flex-1">{ex.desc}</span>
+                                <button onClick={e => { e.stopPropagation(); scheduleJob(ex.name, ex.schedule, ex.npc ? `${ex.command} --npc ${ex.npc}` : ex.command); }}
+                                    disabled={loading} className="px-2 py-0.5 text-[10px] bg-green-600/20 text-green-400 hover:bg-green-600 hover:text-white rounded disabled:opacity-30 flex-shrink-0">
+                                    Enable
+                                </button>
+                            </>}>
+                                <div className="space-y-1">
+                                    <Field label="Schedule"><span className="font-mono text-[10px] text-gray-300">{ex.schedule}</span> <span className="text-[10px] text-gray-500">({humanSchedule(ex.schedule)})</span></Field>
+                                    <Field label="Command"><pre className="font-mono text-[10px] text-gray-300 whitespace-pre-wrap select-all">{ex.command}</pre></Field>
+                                    <Field label="Description"><span className="text-[10px] text-gray-400">{ex.desc}</span></Field>
+                                </div>
+                            </ExpandRow>
+                        ))}
+                    </Section>
+                </>)}
+
+                {/* ═══════════════════ DAEMONS & SYSTEM TAB ═══════════════════ */}
+                {activeTab === 'daemons' && (<>
+                    <div className="flex items-center gap-2">
+                        <div className="relative flex-1">
+                            <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500" />
+                            <input type="text" value={filter} onChange={e => setFilter(e.target.value)}
+                                placeholder="Filter..." className="w-full pl-6 pr-2 py-1.5 text-xs theme-bg-primary border theme-border rounded focus:border-blue-500 focus:outline-none" />
+                        </div>
+                        <button onClick={() => setShowAddDaemon(!showAddDaemon)}
+                            className={`px-2.5 py-1 rounded text-xs flex items-center gap-1 ${showAddDaemon ? 'bg-purple-600 text-white' : 'bg-purple-600/20 text-purple-400 hover:bg-purple-600/30'}`}>
+                            <Plus size={12} /> New Daemon
+                        </button>
+                    </div>
+
+                    {/* Add daemon form */}
+                    {showAddDaemon && (
+                        <div className="p-3 bg-purple-900/15 border border-purple-500/30 rounded-lg space-y-2">
+                            <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label className="text-[10px] text-gray-400 mb-0.5 block">Name</label>
+                                    <input type="text" value={newDaemonName} onChange={e => setNewDaemonName(e.target.value.replace(/[^a-zA-Z0-9_-]/g,'_'))} placeholder="my_daemon" className={inputCls} />
+                                </div>
+                                {npcList.length > 0 && (
+                                    <div>
+                                        <label className="text-[10px] text-gray-400 mb-0.5 block">NPC (optional)</label>
+                                        <select value={newDaemonNpc} onChange={e => setNewDaemonNpc(e.target.value)} className={inputCls}>
+                                            <option value="">None</option>
+                                            {npcList.map((n: any) => <option key={n.name} value={n.name}>{n.name}</option>)}
+                                        </select>
+                                    </div>
+                                )}
+                            </div>
+                            <div>
+                                <label className="text-[10px] text-gray-400 mb-0.5 block">Command</label>
+                                <textarea value={newDaemonCommand} onChange={e => setNewDaemonCommand(e.target.value)}
+                                    placeholder="inotifywait -m -e create ~/Downloads ..." rows={3}
+                                    className={`${inputCls} resize-y min-h-[60px]`} />
+                            </div>
+                            <div className="flex gap-2">
+                                <button onClick={() => startDaemon(newDaemonName, newDaemonCommand, newDaemonNpc)}
+                                    disabled={loading || !newDaemonName || !newDaemonCommand}
+                                    className="flex-1 px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded text-xs disabled:opacity-50 flex items-center justify-center gap-1">
+                                    <Play size={12} /> Start
+                                </button>
+                                <button onClick={() => setShowAddDaemon(false)} className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-xs">Cancel</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* App-spawned daemons */}
+                    {appDaemons.length > 0 && (
+                        <Section title="Running (app-spawned)" count={appDaemons.length} icon={Play}>
+                            {appDaemons.map(d => (
+                                <ExpandRow key={d.id} header={<>
+                                    <Play size={10} className="text-green-400 flex-shrink-0" />
+                                    <span className="font-mono text-xs text-gray-200">{d.name}</span>
+                                    {d.npc && <span className="text-[10px] text-purple-400 bg-purple-900/30 px-1 rounded">{d.npc}</span>}
+                                    <div className="ml-auto flex gap-1" onClick={e => e.stopPropagation()}>
+                                        <button onClick={() => editDaemon(d)} className="p-1 text-gray-400 hover:text-blue-400 rounded text-[10px] flex items-center gap-0.5"><Edit2 size={10} /> Edit</button>
+                                        <button onClick={() => killDaemon(d.id)} className="p-1 text-gray-400 hover:text-red-400 rounded text-[10px] flex items-center gap-0.5"><Square size={10} /> Kill</button>
+                                    </div>
+                                </>}>
+                                    <div className="space-y-1">
+                                        <Field label="Command"><pre className="font-mono text-[10px] text-gray-300 whitespace-pre-wrap select-all">{d.command}</pre></Field>
+                                        {d.npc && <Field label="NPC"><span className="text-[10px] text-purple-300">{d.npc}</span></Field>}
+                                        {d.path && <Field label="Path"><span className="text-[10px] text-gray-400 font-mono">{d.path}</span></Field>}
+                                    </div>
+                                </ExpandRow>
+                            ))}
+                        </Section>
+                    )}
+
+                    {/* Daemon examples */}
+                    {appDaemons.length === 0 && !showAddDaemon && (
+                        <Section title="Quick Start" icon={Sparkles} defaultOpen={true}>
+                            {EXAMPLE_DAEMONS.filter(e => !appDaemons.some((d: any) => d.name === e.name)).map(ex => (
+                                <ExpandRow key={ex.name} header={<>
+                                    <span className="font-mono text-xs text-gray-300">{ex.name}</span>
+                                    <span className="text-[10px] text-gray-600 truncate flex-1">{ex.desc}</span>
+                                    <button onClick={e => { e.stopPropagation(); setNewDaemonName(ex.name); setNewDaemonCommand(ex.command); setNewDaemonNpc(ex.npc || ''); setShowAddDaemon(true); }}
+                                        className="px-2 py-0.5 text-[10px] bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white rounded flex-shrink-0">
+                                        Use
                                     </button>
-                                </div>
-                            </div>
-                            {/* Test Output */}
-                            {testOutput && (
-                                <div className="p-2 bg-black/30 rounded text-xs font-mono max-h-24 overflow-auto">
-                                    <div className="flex justify-between items-center mb-1">
-                                        <span className="text-gray-500">Output:</span>
-                                        <button onClick={() => setTestOutput(null)} className="text-gray-500 hover:text-white">
-                                            <X size={12} />
-                                        </button>
+                                </>}>
+                                    <div className="space-y-1">
+                                        <Field label="Command"><pre className="font-mono text-[10px] text-gray-300 whitespace-pre-wrap select-all">{ex.command}</pre></Field>
+                                        {ex.npc && <Field label="NPC"><span className="text-[10px] text-purple-300">{ex.npc}</span></Field>}
                                     </div>
-                                    <pre className="text-gray-300 whitespace-pre-wrap">{testOutput}</pre>
-                                </div>
-                            )}
-                            {/* NPC (only for npc type) */}
-                            {newCron.commandType === 'npc' && (
-                                <div>
-                                    <label className="text-xs text-gray-400 mb-1 block">NPC</label>
-                                    <select
-                                        value={newCron.npc}
-                                        onChange={(e) => setNewCron({ ...newCron, npc: e.target.value })}
-                                        className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-600 rounded focus:border-blue-500 focus:outline-none"
-                                    >
-                                        <option value="">Select NPC...</option>
-                                        {npcList.map((npc: any) => (
-                                            <option key={npc.name} value={npc.name}>{npc.display_name || npc.name}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                            )}
-                            {/* Description */}
-                            <div>
-                                <label className="text-xs text-gray-400 mb-1 block">Description</label>
-                                <input
-                                    type="text"
-                                    value={newCron.description}
-                                    onChange={(e) => setNewCron({ ...newCron, description: e.target.value })}
-                                    placeholder="What does this job do?"
-                                    className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-600 rounded focus:border-blue-500 focus:outline-none"
-                                />
-                            </div>
-                            {/* Actions */}
-                            <div className="flex gap-2 pt-2">
-                                <button
-                                    onClick={handleAddCronJob}
-                                    disabled={loading || !newCron.command.trim()}
-                                    className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded font-medium text-sm disabled:opacity-50 flex items-center justify-center gap-2"
-                                >
-                                    <Check size={16} /> Create Job
-                                </button>
-                                <button
-                                    onClick={() => { setShowAddCron(false); setTestOutput(null); }}
-                                    className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm"
-                                >
-                                    Cancel
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )}
+                                </ExpandRow>
+                            ))}
+                        </Section>
+                    )}
 
-                {/* Add Daemon Form */}
-                {activeTab === 'daemons' && showAddDaemon && (
-                    <div className="mb-4 p-4 bg-purple-900/20 border border-purple-500/30 rounded-lg">
-                        <h3 className="text-sm font-semibold text-purple-400 mb-3 flex items-center gap-2">
-                            <Plus size={16} /> New Daemon
-                        </h3>
-                        <div className="space-y-3">
-                            {/* Command Type */}
-                            <div>
-                                <label className="text-xs text-gray-400 mb-1 block">Command Type</label>
+                    {/* npcsh triggers */}
+                    {systemDaemons?.npcsh_services?.length > 0 && (
+                        <Section title="NPC Triggers" count={systemDaemons.npcsh_services.length} icon={Zap}>
+                            {systemDaemons.npcsh_services.map((s: string, i: number) => (
+                                <ExpandRow key={i} header={<span className="text-xs font-mono text-blue-300">{s}</span>}>
+                                    <Field label="Location"><span className="text-[10px] text-gray-400 font-mono">~/.npcsh/triggers/{s}</span></Field>
+                                </ExpandRow>
+                            ))}
+                        </Section>
+                    )}
+
+                    {/* User crontab */}
+                    {parsedUserCron.length > 0 && (
+                        <Section title="User Crontab" count={parsedUserCron.length} icon={Clock}>
+                            {parsedUserCron.filter(c => !filter || c.command.toLowerCase().includes(filter.toLowerCase())).map((c, i) => (
+                                <ExpandRow key={i} header={<>
+                                    <span className="font-mono text-xs text-gray-300 truncate flex-1">{c.command}</span>
+                                    <span className="text-[10px] text-blue-400/70 flex-shrink-0">{humanSchedule(c.schedule)}</span>
+                                </>}>
+                                    <div className="space-y-1">
+                                        <Field label="Schedule"><span className="font-mono text-[10px] text-gray-300">{c.schedule}</span> <span className="text-[10px] text-gray-500">({humanSchedule(c.schedule)})</span></Field>
+                                        <Field label="Command"><pre className="font-mono text-[10px] text-gray-300 whitespace-pre-wrap select-all">{c.command}</pre></Field>
+                                    </div>
+                                </ExpandRow>
+                            ))}
+                        </Section>
+                    )}
+
+                    {/* System crontab */}
+                    {parsedSysCron.length > 0 && (
+                        <Section title="/etc/crontab" count={parsedSysCron.length} icon={Cpu} defaultOpen={false}>
+                            {parsedSysCron.filter(c => !filter || c.command.toLowerCase().includes(filter.toLowerCase())).map((c, i) => (
+                                <ExpandRow key={i} header={<>
+                                    <span className="font-mono text-xs text-gray-300 truncate flex-1">{c.command}</span>
+                                    <span className="text-[10px] text-blue-400/70 flex-shrink-0">{c.schedule}</span>
+                                </>}>
+                                    <Field label="Schedule"><span className="font-mono text-[10px] text-gray-300">{c.schedule}</span></Field>
+                                    <Field label="Command"><pre className="font-mono text-[10px] text-gray-300 whitespace-pre-wrap select-all">{c.command}</pre></Field>
+                                </ExpandRow>
+                            ))}
+                        </Section>
+                    )}
+
+                    {/* /etc/cron.d */}
+                    {systemData?.cron_d?.length > 0 && (
+                        <Section title="/etc/cron.d/" count={systemData.cron_d.length} defaultOpen={false}>
+                            {systemData.cron_d.map((f: any, i: number) => (
+                                <ExpandRow key={i} header={<span className="text-xs text-gray-300">{f.name}</span>}>
+                                    <pre className="text-[10px] font-mono text-gray-400 whitespace-pre-wrap max-h-40 overflow-auto select-all">{f.content}</pre>
+                                </ExpandRow>
+                            ))}
+                        </Section>
+                    )}
+
+                    {/* Systemd timers */}
+                    {parsedTimers.length > 0 && (
+                        <Section title="Systemd Timers" count={parsedTimers.length} icon={Clock}>
+                            {parsedTimers.filter(t => !filter || t.unit.toLowerCase().includes(filter.toLowerCase())).map((t, i) => {
+                                const info = serviceInfo[t.unit] || {};
+                                return (
+                                <ExpandRow key={i} header={<>
+                                    <span className="font-mono text-xs text-purple-300">{t.unit}</span>
+                                    {t.left && <span className="text-[10px] text-green-400/80 ml-auto">{t.left}</span>}
+                                </>}>
+                                    <div className="space-y-1.5">
+                                        {t.next && <Field label="Next"><span className="text-[10px] text-gray-300">{t.next}</span></Field>}
+                                        {t.passed && <Field label="Last"><span className="text-[10px] text-gray-300">{t.passed}</span></Field>}
+                                        {t.left && <Field label="In"><span className="text-[10px] text-green-400">{t.left}</span></Field>}
+                                        {!info.unit_file && !info.loading && (
+                                            <button onClick={() => fetchServiceInfo(t.unit + '.timer')} className="text-[10px] text-blue-400 hover:text-blue-300 flex items-center gap-1">
+                                                <Eye size={10} /> Load unit file & logs
+                                            </button>
+                                        )}
+                                        {info.loading && <div className="text-[10px] text-gray-500 italic">Loading...</div>}
+                                        {info.unit_file && (<>
+                                            <div className="text-[10px] text-gray-500 font-medium mt-1">Unit file</div>
+                                            <pre className="text-[10px] font-mono text-gray-400 bg-black/20 rounded p-2 max-h-48 overflow-auto whitespace-pre-wrap select-all">{info.unit_file}</pre>
+                                        </>)}
+                                        {info.journal && (<>
+                                            <div className="text-[10px] text-gray-500 font-medium mt-1">Journal (last 100 lines)</div>
+                                            <pre className="text-[10px] font-mono text-gray-400 bg-black/20 rounded p-2 max-h-60 overflow-auto whitespace-pre-wrap select-all">{info.journal}</pre>
+                                        </>)}
+                                    </div>
+                                </ExpandRow>
+                                );
+                            })}
+                        </Section>
+                    )}
+
+                    {/* Running system services */}
+                    {parsedRunningSvcs.length > 0 && (
+                        <Section title="System Services (running)" count={parsedRunningSvcs.length} icon={Cpu}>
+                            <div className="max-h-[400px] overflow-y-auto space-y-1">
+                                {parsedRunningSvcs.filter(s => !filter || s.unit.toLowerCase().includes(filter.toLowerCase()) || s.description.toLowerCase().includes(filter.toLowerCase())).map((s, i) => {
+                                    const info = serviceInfo[s.unit] || {};
+                                    return (
+                                    <ExpandRow key={i} header={<>
+                                        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${s.sub === 'running' ? 'bg-green-400' : s.sub === 'failed' ? 'bg-red-400' : 'bg-gray-500'}`} />
+                                        <span className="font-mono text-xs text-gray-300 truncate">{s.unit}</span>
+                                        <span className={`text-[10px] px-1 py-0.5 rounded ml-auto ${s.sub === 'running' ? 'bg-green-900/30 text-green-400' : s.sub === 'failed' ? 'bg-red-900/30 text-red-400' : 'bg-gray-800 text-gray-500'}`}>{s.sub}</span>
+                                    </>}>
+                                        <div className="space-y-1.5">
+                                            <Field label="Unit"><span className="font-mono text-[10px] text-gray-300">{s.unit}.service</span></Field>
+                                            <Field label="Load"><span className="text-[10px] text-gray-300">{s.load}</span></Field>
+                                            <Field label="Active"><span className="text-[10px] text-gray-300">{s.active} ({s.sub})</span></Field>
+                                            {s.description && <Field label="Desc"><span className="text-[10px] text-gray-300">{s.description}</span></Field>}
+                                            {!info.unit_file && !info.loading && (
+                                                <button onClick={() => fetchServiceInfo(s.unit)} className="text-[10px] text-blue-400 hover:text-blue-300 flex items-center gap-1">
+                                                    <Eye size={10} /> Load unit file & journal
+                                                </button>
+                                            )}
+                                            {info.loading && <div className="text-[10px] text-gray-500 italic">Loading...</div>}
+                                            {info.unit_file && (<>
+                                                <div className="text-[10px] text-gray-500 font-medium mt-1">Unit file</div>
+                                                <pre className="text-[10px] font-mono text-gray-400 bg-black/20 rounded p-2 max-h-48 overflow-auto whitespace-pre-wrap select-all">{info.unit_file}</pre>
+                                            </>)}
+                                            {info.journal && (<>
+                                                <div className="text-[10px] text-gray-500 font-medium mt-1">journalctl (last 100 lines)</div>
+                                                <pre className="text-[10px] font-mono text-gray-400 bg-black/20 rounded p-2 max-h-60 overflow-auto whitespace-pre-wrap select-all">{info.journal}</pre>
+                                            </>)}
+                                        </div>
+                                    </ExpandRow>
+                                    );
+                                })}
+                            </div>
+                        </Section>
+                    )}
+
+                    {/* User services */}
+                    {(parsedUserSvcs.length > 0 || parsedDaemonUserSvcs.length > 0) && (
+                        <Section title="User Services" count={parsedUserSvcs.length + parsedDaemonUserSvcs.length} icon={Activity}>
+                            <div className="max-h-[400px] overflow-y-auto space-y-1">
+                                {[...parsedUserSvcs, ...parsedDaemonUserSvcs].filter(s => !filter || s.unit.toLowerCase().includes(filter.toLowerCase())).map((s, i) => {
+                                    const info = serviceInfo[s.unit] || {};
+                                    return (
+                                    <ExpandRow key={i} header={<>
+                                        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${s.sub === 'running' ? 'bg-green-400' : s.sub === 'failed' ? 'bg-red-400' : 'bg-gray-500'}`} />
+                                        <span className="font-mono text-xs text-gray-300 truncate">{s.unit}</span>
+                                        <span className={`text-[10px] px-1 py-0.5 rounded ml-auto ${s.sub === 'running' ? 'bg-green-900/30 text-green-400' : 'bg-gray-800 text-gray-500'}`}>{s.sub}</span>
+                                    </>}>
+                                        <div className="space-y-1.5">
+                                            <Field label="Unit"><span className="font-mono text-[10px] text-gray-300">{s.unit}.service</span></Field>
+                                            <Field label="Active"><span className="text-[10px] text-gray-300">{s.active} ({s.sub})</span></Field>
+                                            {s.description && <Field label="Desc"><span className="text-[10px] text-gray-300">{s.description}</span></Field>}
+                                            {!info.unit_file && !info.loading && (
+                                                <button onClick={() => fetchServiceInfo(s.unit)} className="text-[10px] text-blue-400 hover:text-blue-300 flex items-center gap-1">
+                                                    <Eye size={10} /> Load unit file & journal
+                                                </button>
+                                            )}
+                                            {info.loading && <div className="text-[10px] text-gray-500 italic">Loading...</div>}
+                                            {info.unit_file && (<>
+                                                <div className="text-[10px] text-gray-500 font-medium mt-1">Unit file</div>
+                                                <pre className="text-[10px] font-mono text-gray-400 bg-black/20 rounded p-2 max-h-48 overflow-auto whitespace-pre-wrap select-all">{info.unit_file}</pre>
+                                            </>)}
+                                            {info.journal && (<>
+                                                <div className="text-[10px] text-gray-500 font-medium mt-1">journalctl (last 100 lines)</div>
+                                                <pre className="text-[10px] font-mono text-gray-400 bg-black/20 rounded p-2 max-h-60 overflow-auto whitespace-pre-wrap select-all">{info.journal}</pre>
+                                            </>)}
+                                        </div>
+                                    </ExpandRow>
+                                    );
+                                })}
+                            </div>
+                        </Section>
+                    )}
+                </>)}
+
+                {/* ═══════════════════ NQL TAB ═══════════════════ */}
+                {activeTab === 'nql' && (<>
+                    {/* Your SQL Models — fetched from real API */}
+                    <Section title="Your SQL Models" count={sqlModels.length} icon={Table}
+                        actions={
+                            <button onClick={() => { setShowNewModel(!showNewModel); setEditModel(null); setModelForm({ name: '', sql: '', description: '', materialization: 'table', npc: '' }); }}
+                                className={`px-2 py-0.5 rounded text-[10px] flex items-center gap-1 ${showNewModel ? 'bg-emerald-600 text-white' : 'bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30'}`}>
+                                <Plus size={10} /> New Model
+                            </button>
+                        }>
+
+                        {/* New / Edit model form */}
+                        {(showNewModel || editModel) && (
+                            <div className="p-3 bg-emerald-900/15 border border-emerald-500/30 rounded-lg space-y-2 mb-2">
+                                <div className="grid grid-cols-3 gap-2">
+                                    <div>
+                                        <label className="text-[10px] text-gray-400 mb-0.5 block">Name</label>
+                                        <input type="text" value={modelForm.name} onChange={e => setModelForm({ ...modelForm, name: e.target.value.replace(/[^a-zA-Z0-9_]/g,'_') })} placeholder="model_name" className={inputCls} />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] text-gray-400 mb-0.5 block">Materialization</label>
+                                        <select value={modelForm.materialization} onChange={e => setModelForm({ ...modelForm, materialization: e.target.value })} className={inputCls}>
+                                            <option value="table">table</option>
+                                            <option value="view">view</option>
+                                            <option value="incremental">incremental</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] text-gray-400 mb-0.5 block">NPC</label>
+                                        <select value={modelForm.npc} onChange={e => setModelForm({ ...modelForm, npc: e.target.value })} className={inputCls}>
+                                            <option value="">Default</option>
+                                            {npcList.map((n: any) => <option key={n.name} value={n.name}>{n.name}</option>)}
+                                        </select>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-gray-400 mb-0.5 block">Description</label>
+                                    <input type="text" value={modelForm.description} onChange={e => setModelForm({ ...modelForm, description: e.target.value })} placeholder="What does this model do?" className={inputCls} />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-gray-400 mb-0.5 block">SQL</label>
+                                    <textarea value={modelForm.sql} onChange={e => setModelForm({ ...modelForm, sql: e.target.value })}
+                                        placeholder="SELECT nql.get_llm_response('...', 'npc') as result FROM ..."
+                                        className={inputCls + ' min-h-[100px] resize-y'} rows={5} />
+                                </div>
                                 <div className="flex gap-2">
-                                    {(['bash', 'python', 'npc', 'custom'] as const).map(type => (
-                                        <button
-                                            key={type}
-                                            onClick={() => setNewDaemon({ ...newDaemon, commandType: type })}
-                                            className={`flex-1 px-3 py-2 text-xs rounded flex items-center justify-center gap-1 ${
-                                                newDaemon.commandType === type
-                                                    ? 'bg-purple-600 text-white'
-                                                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                                            }`}
-                                        >
-                                            {getCommandTypeIcon(type)}
-                                            {type.charAt(0).toUpperCase() + type.slice(1)}
-                                        </button>
-                                    ))}
+                                    <button onClick={saveModel} disabled={loading || !modelForm.name || !modelForm.sql}
+                                        className="flex-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs disabled:opacity-50 flex items-center justify-center gap-1">
+                                        <Save size={12} /> Save Model
+                                    </button>
+                                    <button onClick={() => { setShowNewModel(false); setEditModel(null); }} className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-xs">Cancel</button>
                                 </div>
-                            </div>
-                            {/* Name */}
-                            <div>
-                                <label className="text-xs text-gray-400 mb-1 block">Name</label>
-                                <input
-                                    type="text"
-                                    value={newDaemon.name}
-                                    onChange={(e) => setNewDaemon({ ...newDaemon, name: e.target.value })}
-                                    placeholder="my-daemon"
-                                    className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-600 rounded focus:border-purple-500 focus:outline-none"
-                                />
-                            </div>
-                            {/* Command */}
-                            <div>
-                                <label className="text-xs text-gray-400 mb-1 block">Command</label>
-                                <textarea
-                                    value={newDaemon.command}
-                                    onChange={(e) => setNewDaemon({ ...newDaemon, command: e.target.value })}
-                                    placeholder={
-                                        newDaemon.commandType === 'bash' ? 'tail -f /var/log/syslog' :
-                                        newDaemon.commandType === 'python' ? 'python3 ~/scripts/server.py' :
-                                        newDaemon.commandType === 'npc' ? '/breathe --interval 300' :
-                                        'your long-running command'
-                                    }
-                                    className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-600 rounded font-mono focus:border-purple-500 focus:outline-none resize-none"
-                                    rows={2}
-                                />
-                            </div>
-                            {/* NPC (only for npc type) */}
-                            {newDaemon.commandType === 'npc' && (
-                                <div>
-                                    <label className="text-xs text-gray-400 mb-1 block">NPC</label>
-                                    <select
-                                        value={newDaemon.npc}
-                                        onChange={(e) => setNewDaemon({ ...newDaemon, npc: e.target.value })}
-                                        className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-600 rounded focus:border-purple-500 focus:outline-none"
-                                    >
-                                        <option value="">Select NPC...</option>
-                                        {npcList.map((npc: any) => (
-                                            <option key={npc.name} value={npc.name}>{npc.display_name || npc.name}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                            )}
-                            {/* Actions */}
-                            <div className="flex gap-2 pt-2">
-                                <button
-                                    onClick={handleAddDaemon}
-                                    disabled={loading || !newDaemon.name.trim() || !newDaemon.command.trim()}
-                                    className="flex-1 px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded font-medium text-sm disabled:opacity-50 flex items-center justify-center gap-2"
-                                >
-                                    <Check size={16} /> Create Daemon
-                                </button>
-                                <button
-                                    onClick={() => setShowAddDaemon(false)}
-                                    className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm"
-                                >
-                                    Cancel
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* Cron Jobs List */}
-                {activeTab === 'cron' && (
-                    <div className="space-y-2">
-                        {loading && cronJobs.length === 0 && (
-                            <div className="text-center py-8 text-gray-400">
-                                <RefreshCw size={24} className="animate-spin mx-auto mb-2" />
-                                Loading...
                             </div>
                         )}
-                        {!loading && filteredCronJobs.length === 0 && (
-                            <div className="text-center py-8 text-gray-500">
-                                <Calendar size={32} className="mx-auto mb-2 opacity-50" />
-                                <p>No scheduled jobs</p>
-                                <p className="text-xs mt-2">Check the Examples tab for templates to get started</p>
-                            </div>
-                        )}
-                        {filteredCronJobs.map((job) => (
-                            <div
-                                key={job.id}
-                                className={`p-3 rounded-lg border transition-colors ${
-                                    job.enabled
-                                        ? 'bg-gray-800/50 border-gray-700 hover:border-blue-500/50'
-                                        : 'bg-gray-900/50 border-gray-800 opacity-60'
-                                }`}
-                            >
-                                <div className="flex items-start justify-between gap-3">
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                                            {getCommandTypeIcon(job.commandType)}
-                                            <code className="text-xs px-2 py-0.5 bg-blue-900/30 text-blue-300 rounded font-mono">
-                                                {job.schedule}
-                                            </code>
-                                            <span className="text-[10px] text-gray-500">
-                                                {parseCronSchedule(job.schedule)}
-                                            </span>
-                                            {!job.enabled && (
-                                                <span className="text-[10px] px-1.5 py-0.5 bg-gray-700 text-gray-400 rounded">
-                                                    Disabled
-                                                </span>
-                                            )}
-                                        </div>
-                                        <div className="text-sm font-mono truncate" title={job.command}>
-                                            {job.command}
-                                        </div>
-                                        {job.description && (
-                                            <div className="text-xs text-gray-500 mt-1">{job.description}</div>
-                                        )}
-                                        <div className="flex items-center gap-3 mt-2 text-[10px] text-gray-500 flex-wrap">
-                                            {job.npc && <span className="flex items-center gap-1"><Bot size={10} /> {job.npc}</span>}
-                                            {job.lastRun && <span>Last: {job.lastRun}</span>}
-                                            {job.nextRun && <span>Next: {job.nextRun}</span>}
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-1">
-                                        <button
-                                            onClick={() => handleToggleCronJob(job)}
-                                            className={`p-1.5 rounded transition-colors ${
-                                                job.enabled
-                                                    ? 'text-green-400 hover:bg-green-500/20'
-                                                    : 'text-gray-500 hover:bg-gray-700'
-                                            }`}
-                                            title={job.enabled ? 'Disable' : 'Enable'}
-                                        >
-                                            {job.enabled ? <Eye size={14} /> : <EyeOff size={14} />}
-                                        </button>
-                                        <button
-                                            onClick={() => handleRemoveCronJob(job.id)}
-                                            className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-red-500/20 rounded transition-colors"
-                                            title="Delete"
-                                        >
-                                            <Trash2 size={14} />
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
 
-                {/* Daemons List */}
-                {activeTab === 'daemons' && (
-                    <div className="space-y-2">
-                        {loading && daemons.length === 0 && (
-                            <div className="text-center py-8 text-gray-400">
-                                <RefreshCw size={24} className="animate-spin mx-auto mb-2" />
-                                Loading...
-                            </div>
-                        )}
-                        {!loading && filteredDaemons.length === 0 && (
-                            <div className="text-center py-8 text-gray-500">
-                                <Server size={32} className="mx-auto mb-2 opacity-50" />
-                                <p>No daemons</p>
-                                <p className="text-xs mt-2">Check the Examples tab for templates to get started</p>
-                            </div>
-                        )}
-                        {filteredDaemons.map((daemon) => (
-                            <div
-                                key={daemon.id}
-                                className={`p-3 rounded-lg border transition-colors ${
-                                    daemon.status === 'running'
-                                        ? 'bg-green-900/10 border-green-500/30'
-                                        : daemon.status === 'error'
-                                        ? 'bg-red-900/10 border-red-500/30'
-                                        : 'bg-gray-800/50 border-gray-700'
-                                }`}
-                            >
-                                <div className="flex items-start justify-between gap-3">
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-center gap-2 mb-1">
-                                            {getCommandTypeIcon(daemon.commandType)}
-                                            <span className="font-semibold">{daemon.name}</span>
-                                            <span className={`text-[10px] px-1.5 py-0.5 rounded flex items-center gap-1 ${
-                                                daemon.status === 'running'
-                                                    ? 'bg-green-500/20 text-green-400'
-                                                    : daemon.status === 'error'
-                                                    ? 'bg-red-500/20 text-red-400'
-                                                    : 'bg-gray-700 text-gray-400'
-                                            }`}>
-                                                <span className={`w-1.5 h-1.5 rounded-full ${
-                                                    daemon.status === 'running' ? 'bg-green-400 animate-pulse' :
-                                                    daemon.status === 'error' ? 'bg-red-400' : 'bg-gray-500'
-                                                }`} />
-                                                {daemon.status}
-                                            </span>
-                                            {daemon.pid && (
-                                                <span className="text-[10px] text-gray-500">PID: {daemon.pid}</span>
-                                            )}
-                                        </div>
-                                        <div className="text-sm font-mono truncate text-gray-400" title={daemon.command}>
-                                            {daemon.command}
-                                        </div>
-                                        <div className="flex items-center gap-3 mt-2 text-[10px] text-gray-500">
-                                            {daemon.npc && <span className="flex items-center gap-1"><Bot size={10} /> {daemon.npc}</span>}
-                                            {daemon.uptime && <span>Uptime: {daemon.uptime}</span>}
-                                            {daemon.restarts !== undefined && daemon.restarts > 0 && <span>Restarts: {daemon.restarts}</span>}
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-1">
-                                        {daemon.status === 'running' ? (
-                                            <button
-                                                onClick={() => handleDaemonAction(daemon.id, 'stop')}
-                                                className="p-1.5 text-yellow-400 hover:bg-yellow-500/20 rounded transition-colors"
-                                                title="Stop"
-                                            >
-                                                <Pause size={14} />
-                                            </button>
-                                        ) : (
-                                            <button
-                                                onClick={() => handleDaemonAction(daemon.id, 'start')}
-                                                className="p-1.5 text-green-400 hover:bg-green-500/20 rounded transition-colors"
-                                                title="Start"
-                                            >
-                                                <Play size={14} />
-                                            </button>
-                                        )}
-                                        <button
-                                            onClick={() => handleDaemonAction(daemon.id, 'restart')}
-                                            className="p-1.5 text-blue-400 hover:bg-blue-500/20 rounded transition-colors"
-                                            title="Restart"
-                                        >
-                                            <RotateCcw size={14} />
-                                        </button>
-                                        <button
-                                            onClick={() => handleViewLogs(daemon.id)}
-                                            className="p-1.5 text-gray-400 hover:text-purple-400 hover:bg-purple-500/20 rounded transition-colors"
-                                            title="View Logs"
-                                        >
-                                            <FileText size={14} />
-                                        </button>
-                                        <button
-                                            onClick={() => handleRemoveDaemon(daemon.id)}
-                                            className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-red-500/20 rounded transition-colors"
-                                            title="Delete"
-                                        >
-                                            <Trash2 size={14} />
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
-
-                {/* Examples Tab */}
-                {activeTab === 'examples' && (
-                    <div className="space-y-6">
-                        <div className="text-sm text-gray-400 mb-4">
-                            Example templates to help you get started. Click "Use This" to copy to the add form.
-                        </div>
-
-                        {/* Cron Examples */}
-                        <div>
-                            <h3 className="text-sm font-semibold text-blue-400 mb-3 flex items-center gap-2">
-                                <Calendar size={16} /> Cron Job Examples
-                            </h3>
-                            <div className="space-y-2">
-                                {EXAMPLE_CRON_JOBS.map((example) => (
-                                    <div
-                                        key={example.id}
-                                        className="p-3 bg-gray-800/30 border border-gray-700/50 rounded-lg"
-                                    >
-                                        <div className="flex items-start justify-between gap-3">
-                                            <div className="flex-1 min-w-0">
-                                                <div className="flex items-center gap-2 mb-1 flex-wrap">
-                                                    {getCommandTypeIcon(example.commandType)}
-                                                    <code className="text-xs px-2 py-0.5 bg-blue-900/30 text-blue-300 rounded font-mono">
-                                                        {example.schedule}
-                                                    </code>
-                                                    <span className="text-[10px] text-gray-500">
-                                                        {parseCronSchedule(example.schedule)}
-                                                    </span>
-                                                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${
-                                                        example.commandType === 'bash' ? 'bg-green-900/30 text-green-400' :
-                                                        example.commandType === 'python' ? 'bg-yellow-900/30 text-yellow-400' :
-                                                        'bg-purple-900/30 text-purple-400'
-                                                    }`}>
-                                                        {example.commandType}
-                                                    </span>
-                                                </div>
-                                                <div className="text-sm font-mono truncate text-gray-300" title={example.command}>
-                                                    {example.command}
-                                                </div>
-                                                {example.description && (
-                                                    <div className="text-xs text-gray-500 mt-1">{example.description}</div>
-                                                )}
-                                            </div>
-                                            <button
-                                                onClick={() => handleCopyExample(example, 'cron')}
-                                                className="px-3 py-1.5 bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 rounded text-xs flex items-center gap-1"
-                                            >
-                                                <Copy size={12} /> Use This
-                                            </button>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Daemon Examples */}
-                        <div>
-                            <h3 className="text-sm font-semibold text-purple-400 mb-3 flex items-center gap-2">
-                                <Server size={16} /> Daemon Examples
-                            </h3>
-                            <div className="space-y-2">
-                                {EXAMPLE_DAEMONS.map((example) => (
-                                    <div
-                                        key={example.id}
-                                        className="p-3 bg-gray-800/30 border border-gray-700/50 rounded-lg"
-                                    >
-                                        <div className="flex items-start justify-between gap-3">
-                                            <div className="flex-1 min-w-0">
-                                                <div className="flex items-center gap-2 mb-1">
-                                                    {getCommandTypeIcon(example.commandType)}
-                                                    <span className="font-semibold">{example.name}</span>
-                                                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${
-                                                        example.commandType === 'bash' ? 'bg-green-900/30 text-green-400' :
-                                                        example.commandType === 'python' ? 'bg-yellow-900/30 text-yellow-400' :
-                                                        'bg-purple-900/30 text-purple-400'
-                                                    }`}>
-                                                        {example.commandType}
-                                                    </span>
-                                                </div>
-                                                <div className="text-sm font-mono truncate text-gray-400" title={example.command}>
-                                                    {example.command}
-                                                </div>
-                                            </div>
-                                            <button
-                                                onClick={() => handleCopyExample(example, 'daemon')}
-                                                className="px-3 py-1.5 bg-purple-600/20 text-purple-400 hover:bg-purple-600/30 rounded text-xs flex items-center gap-1"
-                                            >
-                                                <Copy size={12} /> Use This
-                                            </button>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Tips */}
-                        <div className="p-4 bg-amber-900/10 border border-amber-500/20 rounded-lg">
-                            <h4 className="text-sm font-semibold text-amber-400 mb-2 flex items-center gap-2">
-                                <Sparkles size={14} /> Tips
-                            </h4>
-                            <ul className="text-xs text-gray-400 space-y-1">
-                                <li>• <strong>Bash:</strong> Run any shell command (ls, grep, curl, etc.)</li>
-                                <li>• <strong>Python:</strong> Execute Python scripts with full path</li>
-                                <li>• <strong>NPC:</strong> Use /commands like /sample, /check, /breathe with an NPC</li>
-                                <li>• <strong>Custom:</strong> Any executable or script</li>
-                                <li>• Use the <strong>Test</strong> button to verify your command works before scheduling</li>
-                                <li>• Cron format: minute(0-59) hour(0-23) day(1-31) month(1-12) weekday(0-6)</li>
-                            </ul>
-                        </div>
-                    </div>
-                )}
-
-                {/* SQL Models Tab */}
-                {activeTab === 'models' && (
-                    <div className="space-y-4">
-                        <div className="text-sm text-gray-400 mb-4">
-                            SQL Models use NQL (NPC Query Language) to transform and analyze data with AI-powered functions.
-                        </div>
-
-                        {/* NQL Functions Reference */}
-                        <div className="p-4 bg-emerald-900/20 border border-emerald-500/30 rounded-lg">
-                            <h4 className="text-sm font-semibold text-emerald-400 mb-3 flex items-center gap-2">
-                                <Code size={14} /> NQL Functions
-                            </h4>
-                            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                                {NQL_FUNCTIONS.map((fn) => (
-                                    <div
-                                        key={fn.name}
-                                        className="p-2 bg-gray-800/50 rounded text-xs"
-                                        title={fn.description}
-                                    >
-                                        <code className={`font-mono ${fn.color}`}>{fn.name}()</code>
-                                        <div className="text-gray-500 text-[10px] mt-0.5">{fn.description}</div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* SQL Models List */}
-                        <div className="space-y-2">
-                            <h4 className="text-sm font-semibold text-gray-300 flex items-center gap-2">
-                                <Database size={14} /> Your SQL Models
-                            </h4>
-                            {sqlModels.length === 0 ? (
-                                <div className="text-center py-8 text-gray-500">
-                                    <Table size={32} className="mx-auto mb-2 opacity-50" />
-                                    <p>No SQL models found</p>
-                                    <p className="text-xs mt-2">Create models in your project's models/ directory</p>
-                                </div>
-                            ) : (
-                                sqlModels.map((model) => (
-                                    <div
-                                        key={model.id}
-                                        className="p-3 bg-gray-800/50 rounded-lg border border-gray-700 hover:border-emerald-500/50 transition-colors"
-                                    >
-                                        <div className="flex items-center justify-between mb-2">
-                                            <div className="flex items-center gap-2">
-                                                <Table size={14} className="text-emerald-400" />
-                                                <span className="font-medium">{model.name}</span>
-                                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${
-                                                    model.materialization === 'table' ? 'bg-blue-500/20 text-blue-400' :
-                                                    model.materialization === 'view' ? 'bg-green-500/20 text-green-400' :
-                                                    'bg-purple-500/20 text-purple-400'
-                                                }`}>
-                                                    {model.materialization}
-                                                </span>
-                                            </div>
-                                            <div className="flex items-center gap-1">
-                                                {model.schedule && (
-                                                    <span className="text-[10px] px-1.5 py-0.5 bg-amber-500/20 text-amber-400 rounded flex items-center gap-1">
-                                                        <Clock size={10} /> {model.schedule}
-                                                    </span>
-                                                )}
-                                                <button
-                                                    onClick={() => {
-                                                        setSelectedModel(model);
-                                                        setIsEditingModel(true);
-                                                    }}
-                                                    className="p-1 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
-                                                    title="Edit model"
-                                                >
-                                                    <Edit2 size={12} />
-                                                </button>
-                                                <button
-                                                    onClick={async () => {
-                                                        try {
-                                                            await (window as any).api?.sqlModelRun?.({ modelName: model.name });
-                                                        } catch (err: any) {
-                                                            setError(err.message);
-                                                        }
-                                                    }}
-                                                    className="p-1 hover:bg-emerald-700 rounded text-emerald-400 hover:text-white"
-                                                    title="Run model"
-                                                >
-                                                    <Play size={12} />
-                                                </button>
-                                            </div>
-                                        </div>
-                                        {model.description && (
-                                            <p className="text-xs text-gray-500 mb-2">{model.description}</p>
-                                        )}
-                                        <pre className="text-xs font-mono text-gray-400 bg-black/30 p-2 rounded overflow-x-auto max-h-24">
-                                            {model.sql}
-                                        </pre>
-                                        {model.lastRunAt && (
-                                            <div className="text-[10px] text-gray-600 mt-2 flex items-center gap-1">
-                                                <Clock size={10} /> Last run: {new Date(model.lastRunAt).toLocaleString()}
-                                            </div>
-                                        )}
-                                    </div>
-                                ))
-                            )}
-                        </div>
-
-                        {/* Example NQL Query */}
-                        <div className="p-4 bg-gray-800/50 border border-gray-700 rounded-lg">
-                            <h4 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
-                                <Sparkles size={14} /> Example NQL Query
-                            </h4>
-                            <pre className="text-xs font-mono text-gray-400 bg-black/30 p-3 rounded overflow-x-auto">
-{`-- Extract facts from conversation messages
-SELECT
-    conversation_id,
-    message_id,
-    extract_facts(content) as facts,
-    get_llm_response('summarize this: ' || content) as summary
-FROM messages
-WHERE timestamp > datetime('now', '-7 days')
-LIMIT 100;`}
-                            </pre>
-                        </div>
-                    </div>
-                )}
-
-                {/* System Crontab */}
-                {activeTab === 'system' && (
-                    <div className="space-y-2">
-                        <div className="text-xs text-gray-500 mb-3">
-                            Read-only view of system crontab entries (requires access)
-                        </div>
-                        {systemCron.length === 0 ? (
-                            <div className="text-center py-8 text-gray-500">
-                                <Terminal size={32} className="mx-auto mb-2 opacity-50" />
-                                <p>No system cron jobs found</p>
-                                <p className="text-xs mt-2">Run `crontab -l` in terminal to view your crontab</p>
+                        {sqlModels.length === 0 && !showNewModel ? (
+                            <div className="text-center py-4 text-gray-500 text-xs">
+                                <Table size={20} className="mx-auto mb-1 opacity-50" />
+                                No SQL models yet. Create one or save a template below.
                             </div>
                         ) : (
-                            systemCron.map((job, idx) => (
-                                <div
-                                    key={idx}
-                                    className="p-3 bg-gray-800/50 rounded-lg border border-gray-700"
-                                >
-                                    <div className="flex items-center gap-2 mb-1">
-                                        <code className="text-xs px-2 py-0.5 bg-gray-700 text-gray-300 rounded font-mono">
-                                            {job.schedule}
-                                        </code>
-                                        {job.user && (
-                                            <span className="text-[10px] text-gray-500">({job.user})</span>
+                            sqlModels.map(model => (
+                                <ExpandRow key={model.id} header={<>
+                                    <Table size={12} className="text-emerald-400 flex-shrink-0" />
+                                    <span className="font-mono text-xs text-gray-300">{model.name}</span>
+                                    <span className={`text-[10px] px-1 py-0.5 rounded flex-shrink-0 ${
+                                        model.materialization === 'table' ? 'bg-blue-900/30 text-blue-400' :
+                                        model.materialization === 'view' ? 'bg-green-900/30 text-green-400' :
+                                        'bg-orange-900/30 text-orange-400'
+                                    }`}>{model.materialization}</span>
+                                    {model.isGlobal && <span className="text-[10px] text-gray-600">global</span>}
+                                    <div className="ml-auto flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                                        <button onClick={() => runModel(model)} className="p-1 text-emerald-400 hover:text-emerald-300 rounded" title="Run"><Play size={12} /></button>
+                                        <button onClick={() => { setEditModel(model); setShowNewModel(false); setModelForm({ name: model.name, sql: model.sql, description: model.description || '', materialization: model.materialization, npc: model.npc || '' }); }}
+                                            className="p-1 text-gray-400 hover:text-white rounded" title="Edit"><Edit2 size={12} /></button>
+                                        <button onClick={() => deleteModel(model)} className="p-1 text-gray-400 hover:text-red-400 rounded" title="Delete"><Trash2 size={12} /></button>
+                                    </div>
+                                </>}>
+                                    <div className="space-y-1.5">
+                                        {model.description && <Field label="Description"><span className="text-[10px] text-gray-400">{model.description}</span></Field>}
+                                        {model.npc && <Field label="NPC"><span className="text-[10px] text-purple-300">{model.npc}</span></Field>}
+                                        {model.schedule && <Field label="Schedule"><span className="text-[10px] text-amber-400">{model.schedule}</span></Field>}
+                                        <pre className="text-[10px] font-mono text-gray-400 bg-black/20 rounded p-2 max-h-48 overflow-auto whitespace-pre-wrap select-all">{model.sql}</pre>
+                                        {modelRunResult[model.id] && (
+                                            <div className={`text-[10px] p-2 rounded ${modelRunResult[model.id].startsWith('Error') ? 'bg-red-900/20 text-red-400' : 'bg-green-900/20 text-green-400'}`}>
+                                                {modelRunResult[model.id]}
+                                            </div>
                                         )}
+                                        <button onClick={() => { scheduleJob(`run_${model.name}`, model.schedule || '0 0 * * *', `run:${model.name}`); setActiveTab('jobs'); }}
+                                            className="text-[10px] text-blue-400 hover:text-blue-300 flex items-center gap-1 mt-1">
+                                            <Clock size={10} /> Schedule as cron job
+                                        </button>
                                     </div>
-                                    <div className="text-sm font-mono truncate text-gray-400">
-                                        {job.command}
-                                    </div>
-                                </div>
+                                </ExpandRow>
                             ))
                         )}
-                    </div>
-                )}
+                    </Section>
+
+                    {/* Example templates — save to real models */}
+                    <Section title="Model Templates" count={EXAMPLE_SQL_MODELS.filter(e => !sqlModels.some(m => m.name === e.name)).length} icon={Sparkles} defaultOpen={sqlModels.length === 0}>
+                        {EXAMPLE_SQL_MODELS.filter(e => !sqlModels.some(m => m.name === e.name)).map(ex => (
+                            <ExpandRow key={ex.id} header={<>
+                                <Database size={12} className="text-blue-400 flex-shrink-0" />
+                                <span className="font-mono text-xs text-gray-300">{ex.name}</span>
+                                <span className={`text-[10px] px-1 py-0.5 rounded flex-shrink-0 ${
+                                    ex.materialization === 'table' ? 'bg-blue-900/30 text-blue-400' :
+                                    ex.materialization === 'view' ? 'bg-green-900/30 text-green-400' :
+                                    'bg-orange-900/30 text-orange-400'
+                                }`}>{ex.materialization}</span>
+                                <span className="text-[10px] text-gray-500 truncate flex-1">{ex.description}</span>
+                                <button onClick={e => { e.stopPropagation(); saveExampleModel(ex); }}
+                                    disabled={loading} className="px-2 py-0.5 text-[10px] bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600 hover:text-white rounded disabled:opacity-30 flex-shrink-0">
+                                    Save & Use
+                                </button>
+                            </>}>
+                                <div className="space-y-1">
+                                    <Field label="Description"><span className="text-[10px] text-gray-400">{ex.description}</span></Field>
+                                    {ex.npc && <Field label="NPC"><span className="text-[10px] text-purple-300">{ex.npc}</span></Field>}
+                                    <pre className="text-[10px] font-mono text-gray-400 bg-black/20 rounded p-2 max-h-48 overflow-auto whitespace-pre-wrap select-all">{ex.sql}</pre>
+                                </div>
+                            </ExpandRow>
+                        ))}
+                    </Section>
+
+                    {/* NQL Functions Reference */}
+                    <Section title="NQL Functions Reference" icon={Code} defaultOpen={false}>
+                        {NQL_CATEGORIES.map(cat => (
+                            <div key={cat} className="mb-2">
+                                <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1">{cat}</div>
+                                {NQL_FUNCTIONS.filter(f => f.category === cat).map(fn => (
+                                    <div key={fn.name} className="flex items-center gap-3 px-3 py-1.5 rounded hover:bg-white/5 group">
+                                        <code className={`font-mono text-xs ${fn.color}`}>nql.{fn.name}()</code>
+                                        <span className="text-[10px] text-gray-500 flex-1">{fn.description}</span>
+                                        <button onClick={() => navigator.clipboard.writeText(`nql.${fn.name}()`)}
+                                            className="p-1 text-gray-600 hover:text-gray-300 opacity-0 group-hover:opacity-100" title="Copy">
+                                            <Copy size={10} />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        ))}
+
+                        {/* Example query */}
+                        <div className="mt-3 p-3 bg-gray-800/50 border theme-border rounded-lg">
+                            <div className="text-[10px] font-semibold text-gray-400 mb-2 flex items-center gap-1"><Sparkles size={10} /> Example NQL Query</div>
+                            <pre className="text-[10px] font-mono text-gray-400 bg-black/20 p-2 rounded select-all whitespace-pre-wrap">{`SELECT
+    conversation_id,
+    extract_facts(content) as facts,
+    get_llm_response('summarize: ' || content) as summary
+FROM messages
+WHERE timestamp > datetime('now', '-7 days')
+LIMIT 100;`}</pre>
+                        </div>
+                    </Section>
+                </>)}
             </div>
 
             {/* Footer */}
-            <div className="p-3 border-t theme-border text-xs text-gray-500 flex items-center justify-between flex-shrink-0">
-                <span className="truncate">Path: {currentPath || 'Not set'}</span>
-                <span>
-                    {cronJobs.filter(j => j.enabled).length} active, {daemons.filter(d => d.status === 'running').length} running
-                </span>
+            <div className="px-4 py-2 border-t theme-border text-[10px] text-gray-500 flex items-center justify-between flex-shrink-0">
+                <span className="truncate">{currentPath || '~'}</span>
+                <span>{jobs.length} jobs, {appDaemons.length} daemons, {sqlModels.length} models</span>
             </div>
-
-            {/* Logs Modal */}
-            {showLogs && (
-                <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[100]" onClick={() => setShowLogs(null)}>
-                    <div
-                        className="bg-gray-900 rounded-lg shadow-xl w-[80vw] max-w-3xl max-h-[70vh] flex flex-col"
-                        onClick={e => e.stopPropagation()}
-                    >
-                        <div className="flex items-center justify-between p-3 border-b border-gray-700">
-                            <span className="font-semibold flex items-center gap-2">
-                                <FileText size={16} /> Daemon Logs
-                            </span>
-                            <button onClick={() => setShowLogs(null)} className="p-1 hover:bg-gray-700 rounded">
-                                <X size={16} />
-                            </button>
-                        </div>
-                        <pre className="flex-1 overflow-auto p-4 text-xs font-mono text-gray-300 bg-black/30">
-                            {logs}
-                        </pre>
-                    </div>
-                </div>
-            )}
         </div>
     );
 
-    // Pane mode
-    if (isPane) {
-        return (
-            <div className="flex-1 flex flex-col overflow-hidden theme-bg-secondary">
-                {content}
-            </div>
-        );
-    }
+    if (isPane) return <div className="flex-1 flex flex-col overflow-hidden theme-bg-secondary">{content}</div>;
 
-    // Modal mode
     return (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[100]" onClick={onClose}>
-            <div
-                className="theme-bg-secondary rounded-lg shadow-xl w-[90vw] max-w-4xl max-h-[85vh] overflow-hidden flex flex-col"
-                onClick={e => e.stopPropagation()}
-            >
+            <div className="theme-bg-secondary rounded-lg shadow-xl w-[90vw] max-w-4xl max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
                 {content}
             </div>
         </div>

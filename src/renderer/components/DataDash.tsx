@@ -2672,7 +2672,7 @@ const handleAcceptGeneratedSql = () => {
                             {!collapsedSections['charts'] && (
                                 <div className="p-1.5 grid grid-cols-1 md:grid-cols-2 gap-1.5">
                                     {chartWidgets.map(widget => (
-                                        <div key={widget.id} className={`h-36 ${widget.span === 2 ? 'md:col-span-2' : ''}`} onContextMenu={(e) => handleContextMenu(e, widget.id)}>
+                                        <div key={widget.id} className="h-36" onContextMenu={(e) => handleContextMenu(e, widget.id)}>
                                             <DashboardWidget config={widget} onContextMenu={handleContextMenu}/>
                                         </div>
                                     ))}

@@ -463,7 +463,64 @@ let lastScreenshotTime = 0;
 const SCREENSHOT_COOLDOWN = 1000;
 
 let backendProcess = null;
-function killBackendProcess() {  if (backendProcess) {    log('Killing backend process');    if (process.platform === 'win32') {      try {        execSync(`taskkill /F /T /PID ${backendProcess.pid}`, { stdio: 'ignore' });      } catch (e) {        try { backendProcess.kill('SIGKILL'); } catch (e2) {}      }    } else {      backendProcess.kill('SIGTERM');    }    backendProcess = null;  }}
+let _backendPath = null;
+let _spawnArgs = [];
+let _backendEnv = null;
+
+function killBackendProcess() {
+  if (backendProcess) {
+    log('Killing backend process');
+    if (process.platform === 'win32') {
+      try {
+        execSync(`taskkill /F /T /PID ${backendProcess.pid}`, { stdio: 'ignore' });
+      } catch (e) {
+        try { backendProcess.kill('SIGKILL'); } catch (e2) {}
+      }
+    } else {
+      try { process.kill(-backendProcess.pid, 'SIGTERM'); } catch (e) {
+        try { backendProcess.kill('SIGTERM'); } catch (e2) {}
+      }
+    }
+    backendProcess = null;
+  }
+}
+
+function spawnBackendProcess(bPath, bArgs, label, env) {
+  log(`Spawning backend (${label}): ${bPath} ${bArgs.join(' ')}`);
+  const proc = spawn(bPath, bArgs, {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+    detached: process.platform !== 'win32',
+    env: env,
+  });
+
+  proc.stdout.on("data", (data) => {
+    if (typeof logBackend === 'function') logBackend(`stdout: ${data.toString().trim()}`);
+    else log(`Backend stdout: ${data.toString().trim()}`);
+  });
+
+  proc.stderr.on("data", (data) => {
+    const msg = data.toString().trim();
+    if (typeof logBackend === 'function') logBackend(`stderr: ${msg}`);
+    else log(`Backend stderr: ${msg}`);
+    if (msg.includes('ModuleNotFoundError') || msg.includes('ImportError')) {
+      log(`CRITICAL: Backend missing dependencies: ${msg}`);
+    }
+  });
+
+  proc.on('error', (err) => {
+    log(`Backend process error (${label}): ${err.message}`);
+  });
+
+  proc.on('close', (code) => {
+    if (code !== null && code !== 0) {
+      if (typeof logBackend === 'function') logBackend(`Backend server (${label}) exited with code: ${code}`);
+      else log(`Backend server (${label}) exited with code: ${code}`);
+    }
+  });
+
+  return proc;
+}
 
 
 async function waitForServer(maxAttempts = 120, delay = 1000) {
@@ -834,43 +891,34 @@ app.whenReady().then(async () => {
     // Check if user has configured a custom Python path for the backend
     const customPythonPath = getBackendPythonPath();
 
-    let backendPath;
-    let spawnArgs = [];
-
     if (customPythonPath) {
-      // Use user's Python with npcpy module
       log(`Using custom Python for backend: ${customPythonPath}`);
-      backendPath = customPythonPath;
-      spawnArgs = ['-m', 'npcpy.serve'];
+      _backendPath = customPythonPath;
+      _spawnArgs = ['-m', 'npcpy.serve'];
     } else {
-      // Use bundled executable
       const executableName = process.platform === 'win32' ? 'incognide_serve.exe' : 'incognide_serve';
-      backendPath = app.isPackaged
+      _backendPath = app.isPackaged
         ? path.join(process.resourcesPath, 'backend', executableName)
         : path.join(app.getAppPath(), 'dist', 'resources', 'backend', executableName);
     }
 
-    // Check if backend path exists
-    if (!customPythonPath && !fs.existsSync(backendPath)) {
-      log(`ERROR: Backend executable not found at: ${backendPath}`);
-      // Try to fall back to Python if available
+    if (!customPythonPath && !fs.existsSync(_backendPath)) {
+      log(`ERROR: Backend executable not found at: ${_backendPath}`);
       const pythonPaths = ['python3', 'python'];
       for (const pyPath of pythonPaths) {
         try {
           execSync(`${pyPath} -c "import npcpy"`, { stdio: 'ignore' });
           log(`Falling back to system Python: ${pyPath}`);
-          backendPath = pyPath;
-          spawnArgs = ['-m', 'npcpy.serve'];
+          _backendPath = pyPath;
+          _spawnArgs = ['-m', 'npcpy.serve'];
           break;
-        } catch (e) {
-          // Python or npcpy not available
-        }
+        } catch (e) {}
       }
     }
 
-    log(`Using backend path: ${backendPath}${spawnArgs.length ? ' ' + spawnArgs.join(' ') : ''}`);
+    log(`Using backend path: ${_backendPath}${_spawnArgs.length ? ' ' + _spawnArgs.join(' ') : ''}`);
 
-    const backendEnv = {
+    _backendEnv = {
       ...process.env,
       INCOGNIDE_PORT: String(BACKEND_PORT),
       FLASK_DEBUG: '1',
@@ -879,40 +927,7 @@ app.whenReady().then(async () => {
       HOME: os.homedir(),
     };
 
-    const spawnBackend = (bPath, bArgs, label) => {
-      log(`Spawning backend (${label}): ${bPath} ${bArgs.join(' ')}`);
-      const proc = spawn(bPath, bArgs, {
-        stdio: ['ignore', 'pipe', 'pipe'],
-        windowsHide: true,
-        env: backendEnv,
-      });
-
-      proc.stdout.on("data", (data) => {
-        logBackend(`stdout: ${data.toString().trim()}`);
-      });
-
-      proc.stderr.on("data", (data) => {
-        const msg = data.toString().trim();
-        logBackend(`stderr: ${msg}`);
-        if (msg.includes('ModuleNotFoundError') || msg.includes('ImportError')) {
-          log(`CRITICAL: Backend missing dependencies: ${msg}`);
-        }
-      });
-
-      proc.on('error', (err) => {
-        log(`Backend process error (${label}): ${err.message}`);
-      });
-
-      proc.on('close', (code) => {
-        if (code !== null && code !== 0) {
-          logBackend(`Backend server (${label}) exited with code: ${code}`);
-        }
-      });
-
-      return proc;
-    };
-
-    backendProcess = spawnBackend(backendPath, spawnArgs, 'bundled');
+    backendProcess = spawnBackendProcess(_backendPath, _spawnArgs, 'bundled', _backendEnv);
 
     let serverReady = await waitForServer();
 
@@ -924,7 +939,9 @@ app.whenReady().then(async () => {
         try {
           execSync(`${pyPath} -c "import npcpy.serve"`, { stdio: 'ignore', timeout: 10000 });
           log(`Found working Python with npcpy: ${pyPath}`);
-          backendProcess = spawnBackend(pyPath, ['-m', 'npcpy.serve'], 'python-fallback');
+          _backendPath = pyPath;
+          _spawnArgs = ['-m', 'npcpy.serve'];
+          backendProcess = spawnBackendProcess(_backendPath, _spawnArgs, 'python-fallback', _backendEnv);
           serverReady = await waitForServer(30, 1000);
           if (serverReady) break;
         } catch (e) {
@@ -2152,13 +2169,62 @@ ipcMain.handle('open-new-window', async (event, initialPath) => {
   createWindow(initialPath);
 });
 
+// Backend health check — renderer polls this
+ipcMain.handle('backend:health', async () => {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const response = await fetch(`${BACKEND_URL}/api/health`, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (response.ok) {
+      const data = await response.json();
+      return { status: 'ok', pid: backendProcess?.pid || null, ...data };
+    }
+    return { status: 'unhealthy', error: `HTTP ${response.status}` };
+  } catch (err) {
+    return { status: 'unreachable', error: err.message, pid: backendProcess?.pid || null };
+  }
+});
+
+// Backend restart — kills current process and respawns
+ipcMain.handle('backend:restart', async () => {
+  try {
+    log('Backend restart requested by renderer');
+    killBackendProcess();
+    // Brief pause to let port free up
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    if (!_backendPath || !_backendEnv) {
+      return { success: false, error: 'Backend spawn config not available' };
+    }
+    backendProcess = spawnBackendProcess(_backendPath, _spawnArgs, 'restart', _backendEnv);
+    const ready = await waitForServer(30, 1000);
+    if (ready) {
+      log('Backend restarted successfully');
+      return { success: true };
+    } else {
+      log('Backend restart failed — server did not become ready');
+      return { success: false, error: 'Server did not start in time' };
+    }
+  } catch (err) {
+    log(`Backend restart error: ${err.message}`);
+    return { success: false, error: err.message };
+  }
+});
+
+// Kill backend on quit (all platforms including macOS)
+app.on('before-quit', () => {
+  if (backendProcess) {
+    log('Killing backend process (before-quit)');
+    killBackendProcess();
+  }
+});
+
 app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') {
       if (backendProcess) {
         log('Killing backend process');
         killBackendProcess();
       }
-
       app.quit();
     }
   });

@@ -64,10 +64,13 @@ export function useLayoutManager({ trackActivity, openModeRef }: UseLayoutManage
                         fileContent: activePaneData.fileContent,
                         fileChanged: activePaneData.fileChanged,
                         isUntitled: activePaneData.isUntitled,
-                    chatMessages: activePaneData.chatMessages,
-                    executionMode: activePaneData.executionMode,
-                    selectedJinx: activePaneData.selectedJinx,
-                    chatStats: activePaneData.chatStats,
+                        _editorStateJSON: activePaneData._editorStateJSON,
+                        _cursorPos: activePaneData._cursorPos,
+                        _scrollTopPos: activePaneData._scrollTopPos,
+                        chatMessages: activePaneData.chatMessages,
+                        executionMode: activePaneData.executionMode,
+                        selectedJinx: activePaneData.selectedJinx,
+                        chatStats: activePaneData.chatStats,
                     }];
                 }
                 // Add new content as a new tab, preserving all relevant properties
@@ -98,7 +101,7 @@ export function useLayoutManager({ trackActivity, openModeRef }: UseLayoutManage
                 activePaneData.selectedJinx = newPaneData.selectedJinx;
                 activePaneData.chatStats = newPaneData.chatStats;
                 delete contentDataRef.current[newPaneId];
-                setRootLayoutNode((prev: any) => prev ? JSON.parse(JSON.stringify(prev)) : prev);
+                setRootLayoutNode((prev: any) => prev ? { ...prev } : prev);
                 return activeContentPaneIdRef.current;
             }
         }
@@ -237,9 +240,8 @@ export function useLayoutManager({ trackActivity, openModeRef }: UseLayoutManage
         setRootLayoutNode((oldRoot: any) => {
             if (!oldRoot) return oldRoot;
 
-            const newRoot = JSON.parse(JSON.stringify(oldRoot));
-            let targetNode = newRoot;
-
+            // Walk to the target node (use original references — no cloning)
+            let targetNode = oldRoot;
             for (let i = 0; i < targetNodePath.length; i++) {
                 targetNode = targetNode.children[targetNodePath[i]];
             }
@@ -259,11 +261,16 @@ export function useLayoutManager({ trackActivity, openModeRef }: UseLayoutManage
                 return newSplitNode;
             }
 
-            let parentNode = newRoot;
+            // Shallow-clone only nodes on the path from root to the target's parent.
+            // All other subtrees keep their original references — React memo skips them.
+            const newRoot = { ...oldRoot, children: [...oldRoot.children], sizes: oldRoot.sizes ? [...oldRoot.sizes] : undefined };
+            let current = newRoot;
             for (let i = 0; i < targetNodePath.length - 1; i++) {
-                parentNode = parentNode.children[targetNodePath[i]];
+                const idx = targetNodePath[i];
+                current.children[idx] = { ...current.children[idx], children: [...current.children[idx].children], sizes: current.children[idx].sizes ? [...current.children[idx].sizes] : undefined };
+                current = current.children[idx];
             }
-            parentNode.children[targetNodePath[targetNodePath.length - 1]] = newSplitNode;
+            current.children[targetNodePath[targetNodePath.length - 1]] = newSplitNode;
 
             return newRoot;
         });
@@ -315,16 +322,18 @@ export function useLayoutManager({ trackActivity, openModeRef }: UseLayoutManage
                 return null;
             }
 
-            const newRoot = JSON.parse(JSON.stringify(oldRoot));
-
             if (!nodePath || nodePath.length === 0) {
                 delete contentDataRef.current[paneId];
                 return null;
             }
 
+            // Shallow-clone only nodes on the path — preserve all other subtree references
+            const newRoot = { ...oldRoot, children: [...oldRoot.children], sizes: oldRoot.sizes ? [...oldRoot.sizes] : undefined };
             let parentNode = newRoot;
             for (let i = 0; i < nodePath.length - 1; i++) {
-                parentNode = parentNode.children[nodePath[i]];
+                const idx = nodePath[i];
+                parentNode.children[idx] = { ...parentNode.children[idx], children: [...parentNode.children[idx].children], sizes: parentNode.children[idx].sizes ? [...parentNode.children[idx].sizes] : undefined };
+                parentNode = parentNode.children[idx];
             }
 
             const indexToRemove = nodePath[nodePath.length - 1];
@@ -337,6 +346,7 @@ export function useLayoutManager({ trackActivity, openModeRef }: UseLayoutManage
                     delete contentDataRef.current[paneId];
                     return sibling;
                 } else {
+                    // Walk the shallow-cloned path to grandparent
                     let grandParentNode = newRoot;
                     for (let i = 0; i < nodePath.length - 2; i++) {
                         grandParentNode = grandParentNode.children[nodePath[i]];
@@ -491,7 +501,18 @@ export function useLayoutManager({ trackActivity, openModeRef }: UseLayoutManage
         setRootLayoutNode((oldRoot: any) => {
             if (!oldRoot) return oldRoot;
 
-            let newRoot = JSON.parse(JSON.stringify(oldRoot));
+            // Structural clone: shallow-clone split nodes but preserve pane node references
+            // so LayoutNode memo comparator (prev.node === next.node) skips unchanged panes
+            const structuralClone = (node: any): any => {
+                if (!node) return null;
+                if (node.type === 'pane') return node;
+                return {
+                    ...node,
+                    children: node.children ? node.children.map(structuralClone) : [],
+                    sizes: node.sizes ? [...node.sizes] : undefined
+                };
+            };
+            let newRoot = structuralClone(oldRoot);
 
             const findNodeByPath = (root: any, path: number[]) => {
                 if (!Array.isArray(path)) return null;

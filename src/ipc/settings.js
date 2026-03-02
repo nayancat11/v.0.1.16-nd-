@@ -390,55 +390,47 @@ function register(ctx) {
   });
 
   // ==================== CRON / DAEMONS ====================
-  ipcMain.handle('getCronDaemons', () => {
-    return {
-      cronJobs: Array.from(cronJobs.values()).map(({task, ...rest}) => rest),
-      daemons: Array.from(daemons.values()).map(({process, ...rest}) => rest)
-    };
+
+  ipcMain.handle('getCronJobs', async () => {
+    return await callBackendApi(`${BACKEND_URL}/api/cron/jobs`);
   });
 
-  ipcMain.handle('addCronJob', (event, { path: jobPath, schedule, command, npc, jinx }) => {
-    const id = generateId();
-    const job = { id, path: jobPath, schedule, command, npc, jinx, task: null };
-    scheduleCronJob(job);
-    cronJobs.set(id, job);
-    return { success: true, id };
+  ipcMain.handle('scheduleJob', async (event, params) => {
+    return await callBackendApi(`${BACKEND_URL}/api/cron/schedule`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(params)
+    });
   });
 
-  ipcMain.handle('removeCronJob', (event, id) => {
-    if (cronJobs.has(id)) {
-      const job = cronJobs.get(id);
-      if (job.task) job.task.stop();
-      cronJobs.delete(id);
-      return { success: true };
-    } else {
-      return { success: false, error: 'Cron job not found' };
-    }
+  ipcMain.handle('unscheduleJob', async (event, jobName) => {
+    return await callBackendApi(`${BACKEND_URL}/api/cron/unschedule`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jobName })
+    });
+  });
+
+  ipcMain.handle('jobStatus', async (event, jobName) => {
+    return await callBackendApi(`${BACKEND_URL}/api/cron/status/${encodeURIComponent(jobName)}`);
+  });
+
+  ipcMain.handle('getCrontab', async () => {
+    return await callBackendApi(`${BACKEND_URL}/api/cron/crontab`);
+  });
+
+  ipcMain.handle('getSystemDaemons', async () => {
+    return await callBackendApi(`${BACKEND_URL}/api/cron/daemons`);
+  });
+
+  ipcMain.handle('getServiceInfo', async (event, unit) => {
+    return await callBackendApi(`${BACKEND_URL}/api/cron/service-info/${encodeURIComponent(unit)}`);
   });
 
   ipcMain.handle('addDaemon', (event, { path: daemonPath, name, command, npc, jinx }) => {
     const id = generateId();
-
     try {
-      // Spawn daemon process, e.g., continuous process for your NPC jinxs or commands
-      const proc = spawn(command, {
-        shell: true,
-        detached: true,
-        stdio: ['ignore', 'pipe', 'pipe']
-      });
+      const proc = spawn(command, { shell: true, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
       proc.unref();
-
-      proc.stdout.on('data', data => {
-        console.log(`[Daemon ${name} stdout]: ${data.toString()}`);
-      });
-      proc.stderr.on('data', data => {
-        console.error(`[Daemon ${name} stderr]: ${data.toString()}`);
-      });
-      proc.on('exit', (code, signal) => {
-        console.log(`[Daemon ${name}] exited with code ${code}, signal ${signal}`);
-        // You may want to remove or restart
-      });
-
+      proc.stdout.on('data', data => console.log(`[Daemon ${name}]: ${data.toString()}`));
+      proc.stderr.on('data', data => console.error(`[Daemon ${name} err]: ${data.toString()}`));
+      proc.on('exit', (code) => console.log(`[Daemon ${name}] exited ${code}`));
       daemons.set(id, { id, path: daemonPath, name, command, npc, jinx, process: proc });
       return { success: true, id };
     } catch (err) {
@@ -449,13 +441,15 @@ function register(ctx) {
   ipcMain.handle('removeDaemon', (event, id) => {
     if (daemons.has(id)) {
       const daemon = daemons.get(id);
-      if (daemon.process) {
-        daemon.process.kill();
-      }
+      if (daemon.process) daemon.process.kill();
       daemons.delete(id);
       return { success: true };
     }
     return { success: false, error: 'Daemon not found' };
+  });
+
+  ipcMain.handle('getDaemons', () => {
+    return Array.from(daemons.values()).map(({ process, ...rest }) => rest);
   });
 
   // ==================== UPDATE SHORTCUT ====================

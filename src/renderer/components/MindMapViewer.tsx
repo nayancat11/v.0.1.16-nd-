@@ -876,8 +876,8 @@ const MindMapViewer = ({
                     {contextMenu && (
                         <>
                             <div
-                                className="fixed inset-0 z-40"
-                                onClick={() => setContextMenu(null)}
+                                className="fixed inset-0 z-40 bg-transparent"
+                                onMouseDown={() => setContextMenu(null)}
                             />
                             <div
                                 className="fixed bg-gray-800 border border-gray-600 rounded-lg shadow-xl py-1 z-50 min-w-[160px]"

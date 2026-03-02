@@ -6,7 +6,8 @@ import {
     GitBranch, Brain, Zap, Clock, ChevronsRight, Repeat, ListFilter, File as FileIcon,
     Image as ImageIcon, Tag, Folder, Users, Settings, Images, BookOpen,
     FolderCog, HardDrive, Tags, Network, LayoutDashboard, Share2, Maximize2, Minimize2,
-    FlaskConical, HelpCircle, Search, Music, Save
+    FlaskConical, HelpCircle, Search, Music, Save, ZoomIn, ZoomOut, RotateCw, RefreshCw,
+    Box, Grid3X3, Eye, EyeOff, RotateCcw
 } from 'lucide-react';
 import PaneHeader from './PaneHeader';
 import PaneTabBar from './PaneTabBar';
@@ -78,16 +79,36 @@ export const buildBalancedGridLayout = (paneIds: string[]): any => {
     };
 };
 
-// Add a new pane to an existing layout using balanced grid
-// This rebuilds the entire layout as a balanced grid
+// Add a new pane to an existing layout, preserving existing sizes and structure.
+// Splits the root horizontally (or adds to the top-level split) instead of rebuilding.
 export const addPaneToLayout = (oldRoot: any, newPaneId: string): any => {
     if (!oldRoot) {
         return { id: newPaneId, type: 'content' };
     }
 
-    const existingPaneIds = collectPaneIds(oldRoot);
-    const allPaneIds = [...existingPaneIds, newPaneId];
-    return buildBalancedGridLayout(allPaneIds);
+    const newPaneNode = { id: newPaneId, type: 'content' };
+
+    // If root is a horizontal split, append the new pane to it
+    if (oldRoot.type === 'split' && oldRoot.direction === 'horizontal') {
+        const newChildren = [...oldRoot.children, newPaneNode];
+        // Shrink existing panes proportionally to make room for the new one
+        const newPaneShare = 100 / newChildren.length;
+        const scaleFactor = (100 - newPaneShare) / 100;
+        const newSizes = oldRoot.sizes.map((s: number) => s * scaleFactor);
+        newSizes.push(newPaneShare);
+        return { ...oldRoot, children: newChildren, sizes: newSizes };
+    }
+
+    // Otherwise, wrap existing root + new pane in a horizontal split
+    const existingPaneCount = collectPaneIds(oldRoot).length;
+    const newPaneShare = 100 / (existingPaneCount + 1);
+    return {
+        id: generateLayoutId(),
+        type: 'split',
+        direction: 'horizontal',
+        children: [oldRoot, newPaneNode],
+        sizes: [100 - newPaneShare, newPaneShare],
+    };
 };
 
 // Exported utility function for syncing layout with content data
@@ -211,7 +232,7 @@ const renderPaneContextMenu = () => {
 
   return (
     <>
-      <div className="fixed inset-0 z-40" onClick={() => setPaneContextMenu(null)} />
+      <div className="fixed inset-0 z-40 bg-transparent" onMouseDown={() => setPaneContextMenu(null)} />
       <div
         className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50 text-sm"
         style={{ top: y, left: x }}
@@ -241,13 +262,16 @@ const renderPaneContextMenu = () => {
 
 // End of commented-out fragments
 
-export const LayoutNode = memo(({ node, path, component }) => {
+export const LayoutNode = memo(({ node, path, component: componentRef }) => {
+    // component is a ref — always read .current for the latest value.
+    // This lets the memo only check `node`, preventing re-renders when unrelated state changes.
+    const component = componentRef.current;
     if (!node) return null;
 
     if (node.type === 'split') {
         const handleResize = (e, index) => {
             e.preventDefault();
-            const parentNode = component.findNodeByPath(component.rootLayoutNode, path);
+            const parentNode = componentRef.current.findNodeByPath(componentRef.current.rootLayoutNode, path);
             if (!parentNode) return;
             const startSizes = [...parentNode.sizes];
             const isHorizontal = parentNode.direction === 'horizontal';
@@ -302,11 +326,20 @@ export const LayoutNode = memo(({ node, path, component }) => {
             };
 
             const onMouseUp = () => {
-                // Commit final sizes to React state
-                component.setRootLayoutNode((currentRoot: any) => {
-                    const newRoot = JSON.parse(JSON.stringify(currentRoot));
-                    const target = component.findNodeByPath(newRoot, path);
-                    if (target) target.sizes = currentSizes;
+                // Commit final sizes to React state (structural sharing — only clone along path)
+                componentRef.current.setRootLayoutNode((currentRoot: any) => {
+                    if (path.length === 0) {
+                        return { ...currentRoot, sizes: currentSizes };
+                    }
+                    const newRoot = { ...currentRoot, children: [...currentRoot.children], sizes: currentRoot.sizes ? [...currentRoot.sizes] : undefined };
+                    let current = newRoot;
+                    for (let i = 0; i < path.length - 1; i++) {
+                        const idx = path[i];
+                        current.children[idx] = { ...current.children[idx], children: [...current.children[idx].children], sizes: current.children[idx].sizes ? [...current.children[idx].sizes] : undefined };
+                        current = current.children[idx];
+                    }
+                    const lastIdx = path[path.length - 1];
+                    current.children[lastIdx] = { ...current.children[lastIdx], sizes: currentSizes };
                     return newRoot;
                 });
                 cleanup();
@@ -328,7 +361,7 @@ export const LayoutNode = memo(({ node, path, component }) => {
                 {node.children.map((child, index) => (
                     <React.Fragment key={child.id}>
                         <div className="flex overflow-hidden" style={{ flexBasis: `${node.sizes[index]}%` }}>
-                            <LayoutNode node={child} path={[...path, index]} component={component} />
+                            <LayoutNode node={child} path={[...path, index]} component={componentRef} />
                         </div>
                         {index < node.children.length - 1 && (
                             <div
@@ -378,19 +411,25 @@ export const LayoutNode = memo(({ node, path, component }) => {
         const chatInputProps = getChatInputProps ? getChatInputProps(node.id) : null;
 
         const isActive = node.id === activeContentPaneId;
-        const isTargeted = dropTarget?.nodePath.join('') === path.join('');
+
+        // Local drag-over state — pane detects drags via native HTML5 events
+        // so it doesn't need to re-render when global draggedItem changes.
+        const [localDragOver, setLocalDragOver] = useState(false);
+        const [localDropSide, setLocalDropSide] = useState<string | null>(null);
+        const dragCounterRef = useRef(0); // Track enter/leave balance
 
         const onDrop = (e, side) => {
             e.preventDefault();
             e.stopPropagation();
-            if (!component.draggedItem) return;
+            const comp = componentRef.current;
+            if (!comp.draggedItem) return;
 
-            if (component.draggedItem.type === 'pane') {
-                if (component.draggedItem.id === node.id) return;
+            if (comp.draggedItem.type === 'pane') {
+                if (comp.draggedItem.id === node.id) return;
 
                 // When dropping pane on CENTER, add it as a tab instead of moving
                 if (side === 'center') {
-                    const sourcePaneData = contentDataRef.current[component.draggedItem.id];
+                    const sourcePaneData = contentDataRef.current[comp.draggedItem.id];
                     const targetPaneData = contentDataRef.current[node.id];
 
                     if (sourcePaneData?.contentType && targetPaneData) {
@@ -451,32 +490,37 @@ export const LayoutNode = memo(({ node, path, component }) => {
                         }
 
                         // Close the source pane
-                        closeContentPane(component.draggedItem.id, component.draggedItem.nodePath);
+                        closeContentPane(comp.draggedItem.id, comp.draggedItem.nodePath);
 
                         setRootLayoutNode?.(prev => ({ ...prev }));
-                        component.setDraggedItem(null);
-                        component.setDropTarget(null);
+                        comp.setDraggedItem(null);
+                        comp.setDropTarget(null);
                         return;
                     }
                 }
 
                 // For non-center drops, use normal move behavior
-                component.moveContentPane(component.draggedItem.id, component.draggedItem.nodePath, path, side);
-                component.setDraggedItem(null);
-                component.setDropTarget(null);
+                comp.moveContentPane(comp.draggedItem.id, comp.draggedItem.nodePath, path, side);
+                comp.setDraggedItem(null);
+                comp.setDropTarget(null);
                 return;
             }
 
             // Handle tab drag from another pane's tab bar
-            if (component.draggedItem.type === 'tab') {
-                const { sourceNodeId, tabIndex, contentType: tabContentType, contentId: tabContentId, browserUrl, fileContent, fileChanged } = component.draggedItem;
+            if (comp.draggedItem.type === 'tab') {
+                const { sourceNodeId, tabIndex, contentType: tabContentType, contentId: tabContentId, browserUrl, fileChanged } = comp.draggedItem;
+                const draggedTabId = comp.draggedItem.id; // Stable tab ID
                 const targetPaneData = contentDataRef.current[node.id];
                 const sourcePaneData = contentDataRef.current[sourceNodeId];
+                // Get fileContent from virtual data (authoritative) or fallback to drag data
+                const sourceVirtualId = `${sourceNodeId}_${draggedTabId}`;
+                const sourceVirtualData = contentDataRef.current[sourceVirtualId];
+                const fileContent = sourceVirtualData?.fileContent ?? comp.draggedItem.fileContent;
 
                 // Don't drop on the same pane's center (that's reorder, handled by PaneTabBar)
                 if (sourceNodeId === node.id && side === 'center') {
-                    component.setDraggedItem(null);
-                    component.setDropTarget(null);
+                    comp.setDraggedItem(null);
+                    comp.setDropTarget(null);
                     return;
                 }
 
@@ -538,10 +582,34 @@ export const LayoutNode = memo(({ node, path, component }) => {
 
                 // Remove the tab from source pane
                 if (sourcePaneData?.tabs && sourcePaneData.tabs.length > 0) {
+                    // Save ALL tabs' content from virtual data before splice
+                    // (ensures remaining tabs have up-to-date fileContent in their tab objects)
+                    sourcePaneData.tabs.forEach((tab: any) => {
+                        const vd = contentDataRef.current[`${sourceNodeId}_${tab.id}`];
+                        if (vd) {
+                            if (vd.fileContent !== undefined) tab.fileContent = vd.fileContent;
+                            if (vd.fileChanged !== undefined) tab.fileChanged = vd.fileChanged;
+                            if (vd._scrollTopPos !== undefined) tab._scrollTopPos = vd._scrollTopPos;
+                            if (tab.contentType === 'browser') {
+                                if (vd.browserUrl) tab.browserUrl = vd.browserUrl;
+                                if (vd.browserTitle) tab.browserTitle = vd.browserTitle;
+                            }
+                            if (tab.contentType === 'chat') {
+                                tab.chatMessages = vd.chatMessages ?? sourcePaneData.chatMessages;
+                                tab.executionMode = vd.executionMode ?? sourcePaneData.executionMode;
+                                tab.selectedJinx = vd.selectedJinx ?? sourcePaneData.selectedJinx;
+                                tab.chatStats = vd.chatStats ?? sourcePaneData.chatStats;
+                            }
+                        }
+                    });
+
+                    // Clean up virtual data for the removed tab
+                    delete contentDataRef.current[sourceVirtualId];
+
                     sourcePaneData.tabs.splice(tabIndex, 1);
                     if (sourcePaneData.tabs.length === 0) {
                         // Close the pane if no tabs left
-                        const sourcePath = component.draggedItem.sourcePath || findNodePath(rootLayoutNode, sourceNodeId);
+                        const sourcePath = comp.draggedItem.sourcePath || findNodePath(comp.rootLayoutNode, sourceNodeId);
                         if (sourcePath) closeContentPane(sourceNodeId, sourcePath);
                     } else {
                         // Adjust active index
@@ -551,25 +619,44 @@ export const LayoutNode = memo(({ node, path, component }) => {
                         const newActiveTab = sourcePaneData.tabs[sourcePaneData.activeTabIndex];
                         sourcePaneData.contentType = newActiveTab.contentType;
                         sourcePaneData.contentId = newActiveTab.contentId;
+                        // Sync fileContent from virtual data (authoritative) or tab object
+                        const activeVd = contentDataRef.current[`${sourceNodeId}_${newActiveTab.id}`];
+                        sourcePaneData.fileContent = activeVd?.fileContent ?? newActiveTab.fileContent;
+                        sourcePaneData.fileChanged = activeVd?.fileChanged ?? newActiveTab.fileChanged ?? false;
                         if (newActiveTab.contentType === 'browser') {
                             sourcePaneData.browserUrl = newActiveTab.browserUrl;
+                        }
+                        // Transition to single-tab: copy virtual data to real pane
+                        if (sourcePaneData.tabs.length === 1) {
+                            const lastTab = sourcePaneData.tabs[0];
+                            const lastVd = contentDataRef.current[`${sourceNodeId}_${lastTab.id}`];
+                            if (lastVd) {
+                                if (lastVd.fileContent !== undefined) sourcePaneData.fileContent = lastVd.fileContent;
+                                if (lastVd.fileChanged !== undefined) sourcePaneData.fileChanged = lastVd.fileChanged;
+                                if (lastVd._scrollTopPos !== undefined) sourcePaneData._scrollTopPos = lastVd._scrollTopPos;
+                            } else {
+                                // Virtual data missing — sync from tab object
+                                sourcePaneData.fileContent = lastTab.fileContent;
+                                sourcePaneData.fileChanged = lastTab.fileChanged ?? false;
+                            }
+                            delete contentDataRef.current[`${sourceNodeId}_${lastTab.id}`];
                         }
                     }
                 }
 
                 setRootLayoutNode?.(prev => ({ ...prev }));
-                component.setDraggedItem(null);
-                component.setDropTarget(null);
+                comp.setDraggedItem(null);
+                comp.setDropTarget(null);
                 return;
             }
 
             let contentType;
-            if (draggedItem.type === 'conversation') {
+            if (comp.draggedItem.type === 'conversation') {
                 contentType = 'chat';
-            } else if (draggedItem.type === 'folder') {
+            } else if (comp.draggedItem.type === 'folder') {
                 contentType = 'folder';
-            } else if (draggedItem.type === 'file') {
-                const ext = draggedItem.id.split('.').pop()?.toLowerCase();
+            } else if (comp.draggedItem.type === 'file') {
+                const ext = comp.draggedItem.id.split('.').pop()?.toLowerCase();
                 if (ext === 'pdf') contentType = 'pdf';
                 else if (['csv', 'xlsx', 'xls'].includes(ext)) contentType = 'csv';
                 else if (['docx', 'doc'].includes(ext)) contentType = 'docx';
@@ -578,9 +665,9 @@ export const LayoutNode = memo(({ node, path, component }) => {
                 else if (ext === 'mindmap') contentType = 'mindmap';
                 else if (ext === 'zip') contentType = 'zip';
                 else contentType = 'editor';
-            } else if (draggedItem.type === 'browser') {
+            } else if (comp.draggedItem.type === 'browser') {
                 contentType = 'browser';
-            } else if (draggedItem.type === 'terminal') {
+            } else if (comp.draggedItem.type === 'terminal') {
                 contentType = 'terminal';
             } else {
                 return;
@@ -608,17 +695,17 @@ export const LayoutNode = memo(({ node, path, component }) => {
                         paneData.activeTabIndex = 0;
                     }
                     // Add new content as new tab
-                    const browserUrl = draggedItem.url || draggedItem.browserUrl; // Support both property names
+                    const browserUrl = comp.draggedItem.url || comp.draggedItem.browserUrl; // Support both property names
                     const newTabTitle = contentType === 'browser'
-                        ? (browserUrl || draggedItem.id || 'Browser')
-                        : (getFileName(draggedItem.id) || contentType);
+                        ? (browserUrl || comp.draggedItem.id || 'Browser')
+                        : (getFileName(comp.draggedItem.id) || contentType);
                     const newTab = {
                         id: `tab_${Date.now()}_${paneData.tabs.length}`,
                         contentType,
-                        contentId: draggedItem.id,
+                        contentId: comp.draggedItem.id,
                         browserUrl: browserUrl, // Preserve browser URL from dragged item
-                        fileContent: draggedItem.fileContent, // Preserve file content from dragged item
-                        fileChanged: draggedItem.fileChanged, // Preserve file changed state
+                        fileContent: comp.draggedItem.fileContent, // Preserve file content from dragged item
+                        fileChanged: comp.draggedItem.fileChanged, // Preserve file changed state
                         title: newTabTitle
                     };
                     // Save current tab's content before switching to new tab
@@ -632,7 +719,7 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     paneData.activeTabIndex = paneData.tabs.length - 1;
                     // Update main paneData to reflect the new active tab
                     paneData.contentType = contentType;
-                    paneData.contentId = draggedItem.id;
+                    paneData.contentId = comp.draggedItem.id;
                     // Clear fileContent for new tab (will be loaded below if editor)
                     paneData.fileContent = null;
                     paneData.fileChanged = false;
@@ -641,11 +728,11 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     }
 
                     // For editor files, load the content if not already loaded
-                    if (contentType === 'editor' && !draggedItem.fileContent) {
+                    if (contentType === 'editor' && !comp.draggedItem.fileContent) {
                         // Load file content asynchronously
                         (async () => {
                             try {
-                                const response = await (window as any).api.readFileContent(draggedItem.id);
+                                const response = await (window as any).api.readFileContent(comp.draggedItem.id);
                                 const fileContent = response.error ? `Error: ${response.error}` : response.content;
                                 paneData.fileContent = fileContent;
                                 // Also update the tab's fileContent
@@ -663,10 +750,10 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     setRootLayoutNode?.(prev => ({ ...prev }));
                 } else {
                     // Empty pane - just set content directly
-                    updateContentPane(node.id, contentType, draggedItem.id);
+                    updateContentPane(node.id, contentType, comp.draggedItem.id);
                 }
             } else {
-                performSplit(path, side, contentType, draggedItem.id);
+                performSplit(path, side, contentType, comp.draggedItem.id);
                 // For browser splits, we need to set the browserUrl after performSplit creates the pane
                 // performSplit sets contentDataRef synchronously, so we can update it immediately
                 if (contentType === 'browser' && browserUrl) {
@@ -676,15 +763,15 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     // For now, we'll check all panes for new browser panes without a URL
                     setTimeout(() => {
                         Object.entries(contentDataRef.current).forEach(([id, data]) => {
-                            if (data.contentType === 'browser' && data.contentId === draggedItem.id && !data.browserUrl) {
+                            if (data.contentType === 'browser' && data.contentId === comp.draggedItem.id && !data.browserUrl) {
                                 data.browserUrl = browserUrl;
                             }
                         });
                     }, 0);
                 }
             }
-            setDraggedItem(null);
-            setDropTarget(null);
+            comp.setDraggedItem(null);
+            comp.setDropTarget(null);
         };
 
         const paneData = contentDataRef.current[node.id];
@@ -705,9 +792,18 @@ export const LayoutNode = memo(({ node, path, component }) => {
                 // Save current tab's content before switching
                 const currentTabIndex = paneData.activeTabIndex || 0;
                 if (tabs[currentTabIndex]) {
-                    tabs[currentTabIndex].fileContent = paneData.fileContent;
-                    tabs[currentTabIndex].fileChanged = paneData.fileChanged;
-                    tabs[currentTabIndex].isUntitled = paneData.isUntitled;
+                    // In multi-tab mode, the editor writes to virtual pane data, not the real pane
+                    const currentVirtualId = `${node.id}_${tabs[currentTabIndex].id}`;
+                    const currentVirtualData = contentDataRef.current[currentVirtualId];
+                    tabs[currentTabIndex].fileContent = currentVirtualData?.fileContent ?? paneData.fileContent;
+                    tabs[currentTabIndex].fileChanged = currentVirtualData?.fileChanged ?? paneData.fileChanged;
+                    tabs[currentTabIndex].isUntitled = currentVirtualData?.isUntitled ?? paneData.isUntitled;
+                    // Save editor state (scroll, cursor, undo history) for editor/latex tabs
+                    if (currentVirtualData) {
+                        tabs[currentTabIndex]._editorStateJSON = currentVirtualData._editorStateJSON;
+                        tabs[currentTabIndex]._cursorPos = currentVirtualData._cursorPos;
+                        tabs[currentTabIndex]._scrollTopPos = currentVirtualData._scrollTopPos;
+                    }
                     // Save chat state for chat tabs
                     if (tabs[currentTabIndex].contentType === 'chat') {
                         tabs[currentTabIndex].chatMessages = paneData.chatMessages;
@@ -731,6 +827,14 @@ export const LayoutNode = memo(({ node, path, component }) => {
                 paneData.fileContent = selectedTab.fileContent;
                 paneData.fileChanged = selectedTab.fileChanged || false;
                 paneData.isUntitled = selectedTab.isUntitled || false;
+                // Restore editor state for editor/latex tabs
+                const selectedVirtualId = `${node.id}_${tabs[index].id}`;
+                const selectedVirtualData = contentDataRef.current[selectedVirtualId];
+                if (selectedVirtualData && selectedTab._editorStateJSON) {
+                    selectedVirtualData._editorStateJSON = selectedTab._editorStateJSON;
+                    selectedVirtualData._cursorPos = selectedTab._cursorPos;
+                    selectedVirtualData._scrollTopPos = selectedTab._scrollTopPos;
+                }
                 // Restore chat state for chat tabs
                 if (selectedTab.contentType === 'chat') {
                     paneData.chatMessages = selectedTab.chatMessages;
@@ -753,15 +857,18 @@ export const LayoutNode = memo(({ node, path, component }) => {
                 // Save current tab state before closing
                 const currentTabIndex = paneData.activeTabIndex || 0;
                 if (tabs[currentTabIndex]) {
+                    // In multi-tab mode, editors write to virtual pane data
+                    const closeVirtualId = `${node.id}_${tabs[currentTabIndex].id}`;
+                    const closeVirtualData = contentDataRef.current[closeVirtualId];
                     // Save browser URL/title for browser tabs
                     if (tabs[currentTabIndex].contentType === 'browser') {
                         if (paneData.browserUrl) tabs[currentTabIndex].browserUrl = paneData.browserUrl;
                         if (paneData.browserTitle) tabs[currentTabIndex].browserTitle = paneData.browserTitle;
                     }
-                    // Save file content for editor tabs
-                    if (tabs[currentTabIndex].contentType === 'editor') {
-                        tabs[currentTabIndex].fileContent = paneData.fileContent;
-                        tabs[currentTabIndex].fileChanged = paneData.fileChanged;
+                    // Save file content for editor tabs (prefer virtual data over real pane data)
+                    if (tabs[currentTabIndex].contentType === 'editor' || tabs[currentTabIndex].contentType === 'latex') {
+                        tabs[currentTabIndex].fileContent = closeVirtualData?.fileContent ?? paneData.fileContent;
+                        tabs[currentTabIndex].fileChanged = closeVirtualData?.fileChanged ?? paneData.fileChanged;
                     }
                     // Save chat state for chat tabs
                     if (tabs[currentTabIndex].contentType === 'chat') {
@@ -774,6 +881,9 @@ export const LayoutNode = memo(({ node, path, component }) => {
 
                 const newTabs = [...tabs];
                 newTabs.splice(index, 1);
+
+                // Clean up virtual pane data for removed tab (stable ID — no remapping needed)
+                delete contentDataRef.current[`${node.id}_${tabs[index].id}`];
 
                 if (newTabs.length === 0) {
                     // Close the pane if no tabs left
@@ -794,10 +904,11 @@ export const LayoutNode = memo(({ node, path, component }) => {
                         paneData.browserUrl = newActiveTab.browserUrl;
                         paneData.browserTitle = newActiveTab.browserTitle || 'Browser';
                     }
-                    // Restore file content for editor tabs
-                    if (newActiveTab?.contentType === 'editor') {
-                        paneData.fileContent = newActiveTab.fileContent;
-                        paneData.fileChanged = newActiveTab.fileChanged || false;
+                    // Restore file content for editor tabs (prefer virtual data)
+                    if (newActiveTab?.contentType === 'editor' || newActiveTab?.contentType === 'latex') {
+                        const activeVd = contentDataRef.current[`${node.id}_${newActiveTab.id}`];
+                        paneData.fileContent = activeVd?.fileContent ?? newActiveTab.fileContent;
+                        paneData.fileChanged = activeVd?.fileChanged ?? newActiveTab.fileChanged ?? false;
                     }
                     // Restore chat state for chat tabs
                     if (newActiveTab?.contentType === 'chat') {
@@ -805,6 +916,20 @@ export const LayoutNode = memo(({ node, path, component }) => {
                         paneData.executionMode = newActiveTab.executionMode;
                         paneData.selectedJinx = newActiveTab.selectedJinx;
                         paneData.chatStats = newActiveTab.chatStats;
+                    }
+                    // If only one tab left, transition back to single-tab mode
+                    // Copy virtual data back to real pane so the editor can use node.id
+                    if (newTabs.length === 1) {
+                        const lastTabId = newTabs[0].id;
+                        const lastVd = contentDataRef.current[`${node.id}_${lastTabId}`];
+                        if (lastVd) {
+                            if (lastVd.fileContent !== undefined) paneData.fileContent = lastVd.fileContent;
+                            if (lastVd.fileChanged !== undefined) paneData.fileChanged = lastVd.fileChanged;
+                            if (lastVd._editorStateJSON) paneData._editorStateJSON = lastVd._editorStateJSON;
+                            if (lastVd._cursorPos !== undefined) paneData._cursorPos = lastVd._cursorPos;
+                            if (lastVd._scrollTopPos !== undefined) paneData._scrollTopPos = lastVd._scrollTopPos;
+                        }
+                        delete contentDataRef.current[`${node.id}_${lastTabId}`];
                     }
                     setRootLayoutNode?.(prev => ({ ...prev }));
                 }
@@ -948,6 +1073,9 @@ export const LayoutNode = memo(({ node, path, component }) => {
         } else if (contentType === 'image') {
             headerIcon = <ImageIcon size={14} className="text-purple-400" />;
             headerTitle = getFileName(contentId) || 'Image Viewer';
+        } else if (contentType === 'stl') {
+            headerIcon = <Box size={14} className="text-cyan-400" />;
+            headerTitle = getFileName(contentId) || 'STL Viewer';
         } else if (contentType === 'folder') {
             headerIcon = <Folder size={14} className="text-yellow-400" />;
             headerTitle = getFileName(contentId) || 'Folder';
@@ -1113,6 +1241,65 @@ export const LayoutNode = memo(({ node, path, component }) => {
             );
         }
 
+        // Terminal pane settings button
+        if (contentType === 'terminal') {
+            paneHeaderChildren = (
+                <button
+                    onClick={(e) => { e.stopPropagation(); paneData?.toggleSettings?.(); }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className="p-1 rounded text-xs theme-button theme-hover"
+                    title="Terminal Settings"
+                    style={{ flexShrink: 0 }}
+                >
+                    <Settings size={12} />
+                </button>
+            );
+        }
+
+        // Image pane toolbar buttons (zoom, rotate, fit, reset, download)
+        if (contentType === 'image') {
+            paneHeaderChildren = (
+                <div className="flex items-center gap-0.5">
+                    <button onClick={(e) => { e.stopPropagation(); paneData?.zoomOut?.(); }} className="p-1 rounded text-xs theme-button theme-hover" title="Zoom Out"><ZoomOut size={12} /></button>
+                    <span className="text-[10px] theme-text-muted min-w-[32px] text-center">{Math.round((paneData?.scale || 1) * 100)}%</span>
+                    <button onClick={(e) => { e.stopPropagation(); paneData?.zoomIn?.(); }} className="p-1 rounded text-xs theme-button theme-hover" title="Zoom In"><ZoomIn size={12} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); paneData?.rotate?.(); }} className="p-1 rounded text-xs theme-button theme-hover" title="Rotate 90°"><RotateCw size={12} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); paneData?.fitToScreen?.(); }} className="p-1 rounded text-xs theme-button theme-hover" title="Fit to Screen"><Maximize2 size={12} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); paneData?.resetView?.(); }} className="p-1 rounded text-xs theme-button theme-hover" title="Reset View"><RefreshCw size={12} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); paneData?.download?.(); }} className="p-1 rounded text-xs theme-button theme-hover" title="Download"><Download size={12} /></button>
+                </div>
+            );
+        }
+
+        // STL 3D viewer pane toolbar buttons
+        if (contentType === 'stl') {
+            // Read methods from contentDataRef directly at click time to avoid stale closures
+            const getStlPane = () => contentDataRef.current[node.id];
+            paneHeaderChildren = (
+                <div className="flex items-center gap-0.5" onMouseDown={(e) => e.stopPropagation()}>
+                    <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); getStlPane()?.toggleWireframe?.(); }} className={`p-1 rounded text-xs theme-button theme-hover ${paneData?.wireframe ? 'text-blue-400' : ''}`} title="Toggle Wireframe"><Grid3X3 size={12} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); getStlPane()?.toggleAxes?.(); }} className={`p-1 rounded text-xs theme-button theme-hover ${paneData?.showAxes ? 'text-blue-400' : ''}`} title="Toggle Axes">{paneData?.showAxes ? <Eye size={12} /> : <EyeOff size={12} />}</button>
+                    <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); getStlPane()?.toggleGrid?.(); }} className={`p-1 rounded text-xs theme-button theme-hover ${paneData?.showGrid ? 'text-blue-400' : ''}`} title="Toggle Grid"><LayoutDashboard size={12} /></button>
+                    <div className="w-px h-3 theme-border mx-0.5" />
+                    <input
+                        type="range" min="0.1" max="1" step="0.05"
+                        value={paneData?.opacity ?? 1}
+                        onChange={(e) => { e.stopPropagation(); getStlPane()?.setOpacity?.(parseFloat(e.target.value)); }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        className="w-12 h-3 accent-cyan-400 cursor-pointer"
+                        title={`Opacity: ${Math.round((paneData?.opacity ?? 1) * 100)}%`}
+                    />
+                    <div className="w-px h-3 theme-border mx-0.5" />
+                    <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); getStlPane()?.viewAxis?.('x'); }} className="p-1 rounded text-xs font-bold theme-button theme-hover" style={{ color: '#ef4444' }} title="View X">X</button>
+                    <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); getStlPane()?.viewAxis?.('y'); }} className="p-1 rounded text-xs font-bold theme-button theme-hover" style={{ color: '#22c55e' }} title="View Y">Y</button>
+                    <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); getStlPane()?.viewAxis?.('z'); }} className="p-1 rounded text-xs font-bold theme-button theme-hover" style={{ color: '#3b82f6' }} title="View Z">Z</button>
+                    <div className="w-px h-3 theme-border mx-0.5" />
+                    <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); getStlPane()?.resetCamera?.(); }} className="p-1 rounded text-xs theme-button theme-hover" title="Reset Camera"><RotateCcw size={12} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); getStlPane()?.takeScreenshot?.(); }} className="p-1 rounded text-xs theme-button theme-hover" title="Screenshot"><Download size={12} /></button>
+                </div>
+            );
+        }
+
         // LaTeX pane — no paneHeaderChildren needed, toolbar is integrated in LatexViewer
 
         // Chat pane uses custom header content
@@ -1156,7 +1343,7 @@ export const LayoutNode = memo(({ node, path, component }) => {
         // This allows browsers/terminals to stay mounted when switching tabs
         if (tabs.length > 1) {
             tabs.forEach((tab, index) => {
-                const virtualId = `${node.id}_tab_${index}`;
+                const virtualId = `${node.id}_${tab.id}`;
                 const isActiveTab = index === activeTabIndex;
                 // Create or update virtual pane data for this tab
                 if (!contentDataRef.current[virtualId] || contentDataRef.current[virtualId].contentId !== tab.contentId || contentDataRef.current[virtualId].isUntitled !== tab.isUntitled) {
@@ -1168,26 +1355,44 @@ export const LayoutNode = memo(({ node, path, component }) => {
                         fileContent: tab.fileContent,
                         fileChanged: tab.fileChanged,
                         isUntitled: tab.isUntitled,
+                        _editorStateJSON: tab._editorStateJSON,
+                        _cursorPos: tab._cursorPos,
+                        _scrollTopPos: tab._scrollTopPos,
                         chatMessages: tab.chatMessages,
                         executionMode: tab.executionMode,
                         selectedJinx: tab.selectedJinx,
                         chatStats: tab.chatStats,
                     };
                 }
+                // Sync file content when virtual data hasn't been populated yet
+                // (handles async file load timing — virtual data created before readFileContent resolves)
+                const vd = contentDataRef.current[virtualId];
+                if (vd && (vd.fileContent === undefined || vd.fileContent === null)) {
+                    const src = tab.fileContent ?? (isActiveTab ? paneData?.fileContent : undefined);
+                    if (src !== undefined && src !== null) {
+                        vd.fileContent = src;
+                    }
+                }
+                // Also sync editor state if not yet set (e.g., transitioning from single to multi-tab)
+                if (vd && vd._editorStateJSON === undefined && tab._editorStateJSON) {
+                    vd._editorStateJSON = tab._editorStateJSON;
+                    vd._cursorPos = tab._cursorPos;
+                    vd._scrollTopPos = tab._scrollTopPos;
+                }
                 // For the active tab, keep chat state synced from the real pane data
                 // (updateContentPane sets chat props on paneData, not on the tab object)
-                if (isActiveTab && contentDataRef.current[virtualId]) {
-                    contentDataRef.current[virtualId].chatMessages = paneData?.chatMessages;
-                    contentDataRef.current[virtualId].executionMode = paneData?.executionMode;
-                    contentDataRef.current[virtualId].selectedJinx = paneData?.selectedJinx;
-                    contentDataRef.current[virtualId].chatStats = paneData?.chatStats;
+                if (isActiveTab && vd) {
+                    vd.chatMessages = paneData?.chatMessages;
+                    vd.executionMode = paneData?.executionMode;
+                    vd.selectedJinx = paneData?.selectedJinx;
+                    vd.chatStats = paneData?.chatStats;
                 }
             });
         }
 
         // Render content for a specific tab (used for multi-tab persistent rendering)
         const renderTabContent = (tab: any, tabIndex: number) => {
-            const virtualId = `${node.id}_tab_${tabIndex}`;
+            const virtualId = `${node.id}_${tab.id}`;
             const tabContentType = tab.contentType;
             const isActiveTab = tabIndex === activeTabIndex;
 
@@ -1229,7 +1434,14 @@ export const LayoutNode = memo(({ node, path, component }) => {
                 nodeId: virtualId,
                 onToggleZen: toggleZenMode ? () => toggleZenMode(node.id) : undefined,
                 isZenMode: zenModePaneId === node.id,
-                onClose: () => closeContentPane(node.id, path),
+                onClose: () => {
+                    const tabs = paneData?.tabs;
+                    if (tabs && tabs.length > 1) {
+                        handleTabClose(paneData.activeTabIndex || 0);
+                    } else {
+                        closeContentPane(node.id, path);
+                    }
+                },
                 renamingPaneId,
                 setRenamingPaneId,
                 editedFileName,
@@ -1279,12 +1491,22 @@ export const LayoutNode = memo(({ node, path, component }) => {
                     />
                 );
             }
+            // Close handler: close active tab if multiple, else close pane
+            const handleClose = () => {
+                const tabs = paneData?.tabs;
+                if (tabs && tabs.length > 1) {
+                    handleTabClose(paneData.activeTabIndex || 0);
+                } else {
+                    closeContentPane(node.id, path);
+                }
+            };
+
             if (contentType === 'latex') {
                 return paneRenderers.latex?.({
                     nodeId: node.id,
                     onToggleZen: toggleZenMode ? () => toggleZenMode(node.id) : undefined,
                     isZenMode: zenModePaneId === node.id,
-                    onClose: () => closeContentPane(node.id, path),
+                    onClose: handleClose,
                     renamingPaneId,
                     setRenamingPaneId,
                     editedFileName,
@@ -1300,7 +1522,7 @@ export const LayoutNode = memo(({ node, path, component }) => {
                 nodeId: node.id,
                 onToggleZen: toggleZenMode ? () => toggleZenMode(node.id) : undefined,
                 isZenMode: zenModePaneId === node.id,
-                onClose: () => closeContentPane(node.id, path),
+                onClose: handleClose,
                 renamingPaneId,
                 setRenamingPaneId,
                 editedFileName,
@@ -1315,10 +1537,11 @@ export const LayoutNode = memo(({ node, path, component }) => {
                 style={{ position: 'relative', overflow: 'hidden' }}
                 data-pane-id={node.id}
                 data-pane-type={contentType}
-                onClick={() => setActiveContentPaneId(node.id)}
-                onDragLeave={() => setDropTarget(null)}
-                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ nodePath: path, side: 'center' }); }}
-                onDrop={(e) => onDrop(e, 'center')}
+                onClick={() => componentRef.current.setActiveContentPaneId(node.id)}
+                onDragEnter={(e) => { e.preventDefault(); dragCounterRef.current++; setLocalDragOver(true); }}
+                onDragLeave={(e) => { dragCounterRef.current--; if (dragCounterRef.current <= 0) { dragCounterRef.current = 0; setLocalDragOver(false); setLocalDropSide(null); } }}
+                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onDrop={(e) => { dragCounterRef.current = 0; setLocalDragOver(false); setLocalDropSide(null); onDrop(e, localDropSide || 'center'); }}
             >
                 {/* Tab bar - shows when there are multiple tabs */}
                 {showTabBar && (
@@ -1332,7 +1555,7 @@ export const LayoutNode = memo(({ node, path, component }) => {
                         onToggleZen={contentType === 'browser' && toggleZenMode ? () => toggleZenMode(node.id) : undefined}
                         isZenMode={contentType === 'browser' ? zenModePaneId === node.id : undefined}
                         onClosePane={contentType === 'browser' ? () => closeContentPane(node.id, path) : undefined}
-                        onTabAdd={contentType === 'browser' && component.handleNewBrowserTab ? () => component.handleNewBrowserTab('', node.id) : undefined}
+                        onTabAdd={contentType === 'browser' && component.handleNewBrowserTab ? () => componentRef.current.handleNewBrowserTab('', node.id) : undefined}
                         setDraggedItem={setDraggedItem}
                         findNodePath={findNodePath}
                         rootLayoutNode={rootLayoutNode}
@@ -1368,8 +1591,15 @@ export const LayoutNode = memo(({ node, path, component }) => {
                         onCancelRename={() => setRenamingPaneId(null)}
                         filePath={contentId}
                         onRunScript={onRunScript}
-                        // Close and zen mode props
-                        onClose={() => closeContentPane(node.id, path)}
+                        // Close and zen mode props — close active tab if multiple, else close pane
+                        onClose={() => {
+                            const tabs = paneData?.tabs;
+                            if (tabs && tabs.length > 1) {
+                                handleTabClose(paneData.activeTabIndex || 0);
+                            } else {
+                                closeContentPane(node.id, path);
+                            }
+                        }}
                         onToggleZen={toggleZenMode ? () => toggleZenMode(node.id) : null}
                         isZenMode={zenModePaneId === node.id}
                         // Tab management
@@ -1387,26 +1617,26 @@ export const LayoutNode = memo(({ node, path, component }) => {
                 {/* Browser handles its own header with zen/close buttons inside WebBrowserViewer */}
 
 
-                {draggedItem && !lockedPanes.has(node.id) && (
+                {localDragOver && !lockedPanes.has(node.id) && (
                     <>
                         {/* Center drop zone - explicit zone for adding as tab */}
                         <div
-                            className={`absolute left-1/4 right-1/4 top-1/4 bottom-1/4 z-[20] ${isTargeted && dropTarget.side === 'center' ? 'bg-green-500/30 border-2 border-dashed border-green-400' : ''}`}
-                            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ nodePath: path, side: 'center' }); }}
-                            onDrop={(e) => onDrop(e, 'center')}
+                            className={`absolute left-1/4 right-1/4 top-1/4 bottom-1/4 z-[20] ${localDropSide === 'center' ? 'bg-green-500/30 border-2 border-dashed border-green-400' : ''}`}
+                            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setLocalDropSide('center'); }}
+                            onDrop={(e) => { e.preventDefault(); e.stopPropagation(); dragCounterRef.current = 0; setLocalDragOver(false); setLocalDropSide(null); onDrop(e, 'center'); }}
                         />
-                        <div className={`absolute left-0 top-0 bottom-0 w-1/4 z-[20] ${isTargeted && dropTarget.side === 'left' ? 'bg-blue-500/30' : ''}`} onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ nodePath: path, side: 'left' }); }} onDrop={(e) => onDrop(e, 'left')} />
-                        <div className={`absolute right-0 top-0 bottom-0 w-1/4 z-[20] ${isTargeted && dropTarget.side === 'right' ? 'bg-blue-500/30' : ''}`} onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ nodePath: path, side: 'right' }); }} onDrop={(e) => onDrop(e, 'right')} />
-                        <div className={`absolute left-0 top-0 right-0 h-1/4 z-[20] ${isTargeted && dropTarget.side === 'top' ? 'bg-blue-500/30' : ''}`} onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ nodePath: path, side: 'top' }); }} onDrop={(e) => onDrop(e, 'top')} />
-                        <div className={`absolute left-0 bottom-0 right-0 h-1/4 z-[20] ${isTargeted && dropTarget.side === 'bottom' ? 'bg-blue-500/30' : ''}`} onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({ nodePath: path, side: 'bottom' }); }} onDrop={(e) => onDrop(e, 'bottom')} />
+                        <div className={`absolute left-0 top-0 bottom-0 w-1/4 z-[20] ${localDropSide === 'left' ? 'bg-blue-500/30' : ''}`} onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setLocalDropSide('left'); }} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); dragCounterRef.current = 0; setLocalDragOver(false); setLocalDropSide(null); onDrop(e, 'left'); }} />
+                        <div className={`absolute right-0 top-0 bottom-0 w-1/4 z-[20] ${localDropSide === 'right' ? 'bg-blue-500/30' : ''}`} onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setLocalDropSide('right'); }} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); dragCounterRef.current = 0; setLocalDragOver(false); setLocalDropSide(null); onDrop(e, 'right'); }} />
+                        <div className={`absolute left-0 top-0 right-0 h-1/4 z-[20] ${localDropSide === 'top' ? 'bg-blue-500/30' : ''}`} onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setLocalDropSide('top'); }} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); dragCounterRef.current = 0; setLocalDragOver(false); setLocalDropSide(null); onDrop(e, 'top'); }} />
+                        <div className={`absolute left-0 bottom-0 right-0 h-1/4 z-[20] ${localDropSide === 'bottom' ? 'bg-blue-500/30' : ''}`} onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setLocalDropSide('bottom'); }} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); dragCounterRef.current = 0; setLocalDragOver(false); setLocalDropSide(null); onDrop(e, 'bottom'); }} />
                     </>
                 )}
-                {/* Render content - for multi-tab panes with browsers/terminals, render ALL tabs to keep them mounted */}
-                {tabs.length > 1 && tabs.some(t => ['browser', 'terminal'].includes(t.contentType)) ? (
-                    // Multi-tab with stateful content: render all tabs, hide inactive ones
+                {/* Render content - for multi-tab panes, render ALL tabs to keep them mounted with individual state */}
+                {tabs.length > 1 ? (
+                    // Multi-tab: render all tabs, hide inactive ones — each gets its own virtualId
                     tabs.map((tab, index) => (
                         <div
-                            key={`${node.id}_tab_${index}`}
+                            key={tab.id}
                             className="flex-1 flex flex-col min-h-0"
                             style={{ display: index === activeTabIndex ? 'flex' : 'none' }}
                         >
@@ -1414,14 +1644,14 @@ export const LayoutNode = memo(({ node, path, component }) => {
                         </div>
                     ))
                 ) : (
-                    // Single tab or no stateful content: render normally
+                    // Single tab: render normally
                     renderPaneContent()
                 )}
             </div>
         );
     }
     return null;
-});
+}, (prev, next) => prev.node === next.node);
 
 
 

@@ -204,6 +204,15 @@ const editorTheme = EditorView.theme({
 
 const CodeMirrorEditor = memo(({ value, onChange, filePath, onSave, onContextMenu, onSelect, onSendToTerminal, savedEditorState, onEditorStateChange, keybindMode }) => {
     const editorRef = useRef(null);
+    // Store callback refs so we don't re-render when parent passes new function instances
+    const onSelectRef = useRef(onSelect);
+    const onContextMenuRef = useRef(onContextMenu);
+    const onSendToTerminalRef = useRef(onSendToTerminal);
+    const onSaveRef = useRef(onSave);
+    onSelectRef.current = onSelect;
+    onContextMenuRef.current = onContextMenu;
+    onSendToTerminalRef.current = onSendToTerminal;
+    onSaveRef.current = onSave;
 
     const languageExtension = useMemo(() => {
         const ext = filePath?.split('.').pop()?.toLowerCase();
@@ -222,35 +231,35 @@ const CodeMirrorEditor = memo(({ value, onChange, filePath, onSave, onContextMen
     }, [filePath]);
 
     const customKeymap = useMemo(() => keymap.of([
-        { key: 'Mod-s', run: () => { if (onSave) onSave(); return true; } },
+        { key: 'Mod-s', run: () => { if (onSaveRef.current) onSaveRef.current(); return true; } },
         { key: 'Ctrl-Enter', run: (view) => {
-            if (onSendToTerminal) {
+            if (onSendToTerminalRef.current) {
                 const selection = view.state.sliceDoc(
                     view.state.selection.main.from,
                     view.state.selection.main.to
                 );
                 if (selection) {
-                    onSendToTerminal(selection);
+                    onSendToTerminalRef.current(selection);
                     return true;
                 }
             }
             return false;
         }},
         { key: 'Mod-Enter', run: (view) => {
-            if (onSendToTerminal) {
+            if (onSendToTerminalRef.current) {
                 const selection = view.state.sliceDoc(
                     view.state.selection.main.from,
                     view.state.selection.main.to
                 );
                 if (selection) {
-                    onSendToTerminal(selection);
+                    onSendToTerminalRef.current(selection);
                     return true;
                 }
             }
             return false;
         }},
         indentWithTab,
-    ]), [onSave, onSendToTerminal]);
+    ]), []);
 
     const tabSize = useMemo(() => {
         const saved = localStorage.getItem('incognide_tabSize');
@@ -405,17 +414,17 @@ const CodeMirrorEditor = memo(({ value, onChange, filePath, onSave, onContextMen
     ], [languageExtension, lintExtension, customKeymap, tabSize, keymapExtensions, vimExtension]);
 
     const handleUpdate = useCallback((viewUpdate) => {
-        if (viewUpdate.selectionSet && onSelect) {
+        if (viewUpdate.selectionSet && onSelectRef.current) {
             const { from, to } = viewUpdate.state.selection.main;
-            onSelect(from, to);
+            onSelectRef.current(from, to);
         }
-    }, [onSelect]);
+    }, []);
 
     useEffect(() => {
         const editorDOM = editorRef.current?.editor;
         if (editorDOM) {
             const handleContextMenu = (event) => {
-                if (onContextMenu) {
+                if (onContextMenuRef.current) {
                     const view = editorRef.current?.view;
                     let selection = '';
                     if (view) {
@@ -424,18 +433,18 @@ const CodeMirrorEditor = memo(({ value, onChange, filePath, onSave, onContextMen
                             selection = view.state.sliceDoc(from, to);
                         }
                     }
-                    onContextMenu(event, selection);
+                    onContextMenuRef.current(event, selection);
                 }
             };
             editorDOM.addEventListener('contextmenu', handleContextMenu);
             return () => editorDOM.removeEventListener('contextmenu', handleContextMenu);
         }
-    }, [onContextMenu]);
+    }, []);
 
     // Direct keydown handler for Ctrl+Enter (or Shift+Enter) to send selection to terminal
     useEffect(() => {
         const editorDOM = editorRef.current?.editor;
-        if (!editorDOM || !onSendToTerminal) return;
+        if (!editorDOM) return;
 
         const handleKeyDown = (e: KeyboardEvent) => {
             if (((e.ctrlKey || e.metaKey) || e.shiftKey) && e.key === 'Enter') {
@@ -444,10 +453,10 @@ const CodeMirrorEditor = memo(({ value, onChange, filePath, onSave, onContextMen
                     const { from, to } = view.state.selection.main;
                     if (from !== to) {
                         const selection = view.state.sliceDoc(from, to);
-                        if (selection) {
+                        if (selection && onSendToTerminalRef.current) {
                             e.preventDefault();
                             e.stopPropagation();
-                            onSendToTerminal(selection);
+                            onSendToTerminalRef.current(selection);
                         }
                     }
                 }
@@ -456,22 +465,58 @@ const CodeMirrorEditor = memo(({ value, onChange, filePath, onSave, onContextMen
 
         editorDOM.addEventListener('keydown', handleKeyDown, true);
         return () => editorDOM.removeEventListener('keydown', handleKeyDown, true);
-    }, [onSendToTerminal]);
+    }, []);
 
-    // Save editor state (undo history, cursor) on unmount
+    // Track top visible document position for scroll preservation
+    const scrollPosRef = useRef(0);
+    const resizeObserverRef = useRef<ResizeObserver | null>(null);
+
+    // Save to paneData on unmount, clean up observer
     useEffect(() => {
         return () => {
             if (onEditorStateChange && editorRef.current?.view) {
-                try {
-                    const view = editorRef.current.view;
-                    onEditorStateChange({
-                        json: view.state.toJSON({ history: history() }),
-                        cursorPos: view.state.selection.main.head,
-                    });
-                } catch (e) { /* serialization failure is OK */ }
+                try { onEditorStateChange({ scrollTopPos: editorRef.current.view.viewport.from }); } catch (e) {}
             }
+            resizeObserverRef.current?.disconnect();
         };
     }, [onEditorStateChange]);
+
+    const onCreateEditor = useCallback((view: any) => {
+        let restoring = false;
+
+        // Track top visible position continuously (skip during restoration)
+        view.scrollDOM.addEventListener('scroll', () => {
+            if (!restoring) {
+                try { scrollPosRef.current = view.viewport.from; } catch (e) {}
+            }
+        }, { passive: true });
+
+        // Restore scroll on container resize — capture position synchronously
+        // before CodeMirror's internal resize handler can fire scroll events
+        const parent = view.dom?.parentElement;
+        if (parent) {
+            const observer = new ResizeObserver(() => {
+                const pos = scrollPosRef.current;
+                if (pos > 0) {
+                    restoring = true;
+                    requestAnimationFrame(() => {
+                        try { view.dispatch({ effects: EditorView.scrollIntoView(pos, { y: 'start', yMargin: 0 }) }); } catch (e) {}
+                        restoring = false;
+                    });
+                }
+            });
+            observer.observe(parent);
+            resizeObserverRef.current = observer;
+        }
+
+        // Restore scroll on remount
+        if (savedEditorState?.scrollTopPos != null && savedEditorState.scrollTopPos > 0) {
+            scrollPosRef.current = savedEditorState.scrollTopPos;
+            requestAnimationFrame(() => {
+                try { view.dispatch({ effects: EditorView.scrollIntoView(savedEditorState.scrollTopPos, { y: 'start', yMargin: 0 }) }); } catch (e) {}
+            });
+        }
+    }, [savedEditorState]);
 
     return (
         <CodeMirror
@@ -482,12 +527,15 @@ const CodeMirrorEditor = memo(({ value, onChange, filePath, onSave, onContextMen
             extensions={extensions}
             onChange={onChange}
             onUpdate={handleUpdate}
-            initialState={savedEditorState ? {
-                json: savedEditorState.json,
-                fields: { history: history() },
-            } : undefined}
+            onCreateEditor={onCreateEditor}
         />
     );
+}, (prevProps, nextProps) => {
+    // Only re-render on value, filePath, or keybindMode changes
+    // Callback refs handle the rest without re-rendering
+    return prevProps.value === nextProps.value
+        && prevProps.filePath === nextProps.filePath
+        && prevProps.keybindMode === nextProps.keybindMode;
 });
 
 
@@ -531,7 +579,29 @@ const CodeEditorPane = ({
     const [keybindMode, setKeybindMode] = useState(() => {
         return localStorage.getItem('incognide_editorKeybindMode') || 'default';
     });
+    const [enabledModes, setEnabledModes] = useState<string[]>(() => {
+        const saved = localStorage.getItem('incognide_editorEnabledModes');
+        return saved ? JSON.parse(saved) : ['default', 'vim'];
+    });
     const [showKeybindGuide, setShowKeybindGuide] = useState(false);
+
+    // Ctrl+Shift+Space cycles through enabled editor modes
+    useEffect(() => {
+        const handleCycleMode = (e: KeyboardEvent) => {
+            if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.code === 'Space') {
+                e.preventDefault();
+                e.stopPropagation();
+                if (enabledModes.length < 2) return;
+                const currentIndex = enabledModes.indexOf(keybindMode);
+                const nextIndex = (currentIndex + 1) % enabledModes.length;
+                const nextMode = enabledModes[nextIndex];
+                setKeybindMode(nextMode);
+                localStorage.setItem('incognide_editorKeybindMode', nextMode);
+            }
+        };
+        window.addEventListener('keydown', handleCycleMode, true);
+        return () => window.removeEventListener('keydown', handleCycleMode, true);
+    }, [keybindMode, enabledModes]);
 
     if (!paneData) return null;
 
@@ -676,7 +746,7 @@ const CodeEditorPane = ({
                 )}
 
                 {/* Editor */}
-                <div className="flex-1 overflow-auto min-h-0 relative">
+                <div className="flex-1 overflow-hidden min-h-0 relative">
                     <CodeMirrorEditor
                         value={fileContent || ''}
                         onChange={onContentChange}
@@ -686,26 +756,61 @@ const CodeEditorPane = ({
                         onContextMenu={onEditorContextMenu}
                         onSendToTerminal={onSendToTerminal}
                         keybindMode={keybindMode}
-                        savedEditorState={paneData?._editorStateJSON ? { json: paneData._editorStateJSON } : undefined}
-                        onEditorStateChange={(state) => { if (paneData) { paneData._editorStateJSON = state.json; paneData._cursorPos = state.cursorPos; } }}
+                        savedEditorState={paneData?._scrollTopPos != null ? { scrollTopPos: paneData._scrollTopPos } : undefined}
+                        onEditorStateChange={(state) => { if (paneData) { paneData._scrollTopPos = state.scrollTopPos; } }}
                     />
-                    {/* Keybinding mode selector + guide */}
+                    {/* Keybinding mode selector + cycle toggles + guide */}
                     <div className="absolute bottom-1 right-2 z-10 flex items-center gap-1">
-                        <select
-                            value={keybindMode}
-                            onChange={(e) => {
-                                const mode = e.target.value;
-                                setKeybindMode(mode);
-                                localStorage.setItem('incognide_editorKeybindMode', mode);
-                            }}
-                            className="text-[10px] px-1.5 py-0.5 rounded bg-black/40 text-gray-400 border border-white/10 hover:bg-black/60 hover:text-gray-200 cursor-pointer outline-none"
-                            title="Editor keybinding mode"
-                        >
-                            <option value="default">Default</option>
-                            <option value="vim">Vim</option>
-                            <option value="emacs">Emacs</option>
-                            <option value="nano">Nano</option>
-                        </select>
+                        {/* Mode cycle toggles */}
+                        {(['default', 'vim', 'emacs', 'nano'] as const).map(mode => {
+                            const isEnabled = enabledModes.includes(mode);
+                            const isActive = keybindMode === mode;
+                            const label = mode === 'default' ? 'Def' : mode.charAt(0).toUpperCase() + mode.slice(1);
+                            return (
+                                <button
+                                    key={mode}
+                                    onClick={() => {
+                                        // Click = switch to this mode
+                                        setKeybindMode(mode);
+                                        localStorage.setItem('incognide_editorKeybindMode', mode);
+                                        // Also enable it if not already
+                                        if (!isEnabled) {
+                                            const next = [...enabledModes, mode];
+                                            setEnabledModes(next);
+                                            localStorage.setItem('incognide_editorEnabledModes', JSON.stringify(next));
+                                        }
+                                    }}
+                                    onContextMenu={(e) => {
+                                        e.preventDefault();
+                                        // Right-click = toggle inclusion in cycle
+                                        if (isEnabled && enabledModes.length > 1) {
+                                            const next = enabledModes.filter(m => m !== mode);
+                                            setEnabledModes(next);
+                                            localStorage.setItem('incognide_editorEnabledModes', JSON.stringify(next));
+                                            // If we disabled the current mode, switch to first enabled
+                                            if (keybindMode === mode) {
+                                                setKeybindMode(next[0]);
+                                                localStorage.setItem('incognide_editorKeybindMode', next[0]);
+                                            }
+                                        } else if (!isEnabled) {
+                                            const next = [...enabledModes, mode];
+                                            setEnabledModes(next);
+                                            localStorage.setItem('incognide_editorEnabledModes', JSON.stringify(next));
+                                        }
+                                    }}
+                                    className={`text-[10px] px-1.5 py-0.5 rounded border cursor-pointer transition-colors ${
+                                        isActive
+                                            ? 'bg-purple-600/60 text-purple-200 border-purple-500/50'
+                                            : isEnabled
+                                                ? 'bg-black/40 text-gray-400 border-white/10 hover:bg-black/60 hover:text-gray-200'
+                                                : 'bg-black/20 text-gray-600 border-white/5 hover:bg-black/40 hover:text-gray-400'
+                                    }`}
+                                    title={`${isActive ? 'Active' : 'Click to switch'}. Right-click to ${isEnabled ? 'exclude from' : 'include in'} Ctrl+Shift+Space cycle.`}
+                                >
+                                    {label}
+                                </button>
+                            );
+                        })}
                         <button
                             onClick={() => setShowKeybindGuide(prev => !prev)}
                             className={`p-0.5 rounded hover:bg-black/60 ${showKeybindGuide ? 'text-purple-400' : 'text-gray-500 hover:text-gray-300'}`}
@@ -715,71 +820,140 @@ const CodeEditorPane = ({
                         </button>
                     </div>
                     {showKeybindGuide && (
-                        <div className="absolute bottom-7 right-2 z-20 w-64 rounded-lg border border-white/10 bg-[#181825]/95 backdrop-blur shadow-xl text-[11px] text-gray-300 overflow-hidden">
-                            <div className="flex items-center justify-between px-3 py-1.5 border-b border-white/10 bg-black/20">
+                        <div className="absolute bottom-7 left-0 right-0 z-20 border-t border-white/10 bg-[#181825]/95 backdrop-blur text-[11px] text-gray-300">
+                            <div className="flex items-center justify-between px-3 py-1 border-b border-white/10 bg-black/20">
                                 <span className="font-medium text-gray-200 text-xs">
                                     {keybindMode === 'default' ? 'Default' : keybindMode === 'vim' ? 'Vim' : keybindMode === 'emacs' ? 'Emacs' : 'Nano'} Keybindings
+                                    <span className="ml-2 text-gray-500 font-normal">Ctrl+Shift+Space to cycle modes</span>
                                 </span>
                                 <button onClick={() => setShowKeybindGuide(false)} className="p-0.5 rounded hover:bg-white/10 text-gray-500 hover:text-gray-300">
                                     <X size={10} />
                                 </button>
                             </div>
-                            <div className="px-3 py-2 space-y-1 max-h-60 overflow-y-auto">
-                                {keybindMode === 'default' && <>
-                                    <KbRow keys="Cmd/Ctrl+S" desc="Save file" />
-                                    <KbRow keys="Cmd/Ctrl+Z" desc="Undo" />
-                                    <KbRow keys="Cmd/Ctrl+Shift+Z" desc="Redo" />
-                                    <KbRow keys="Cmd/Ctrl+F" desc="Find" />
-                                    <KbRow keys="Cmd/Ctrl+H" desc="Find & replace" />
-                                    <KbRow keys="Cmd/Ctrl+D" desc="Select next occurrence" />
-                                    <KbRow keys="Cmd/Ctrl+/" desc="Toggle comment" />
-                                    <KbRow keys="Tab" desc="Indent" />
-                                    <KbRow keys="Shift+Tab" desc="Dedent" />
-                                    <KbRow keys="Cmd/Ctrl+Enter" desc="Send selection to terminal" />
-                                </>}
-                                {keybindMode === 'vim' && <>
-                                    <div className="text-gray-500 font-medium mb-0.5">Normal Mode</div>
-                                    <KbRow keys="i / a / o" desc="Insert / append / open line" />
-                                    <KbRow keys="h j k l" desc="Move left/down/up/right" />
-                                    <KbRow keys="w / b / e" desc="Word forward/back/end" />
-                                    <KbRow keys="0 / $" desc="Line start / end" />
-                                    <KbRow keys="gg / G" desc="File start / end" />
-                                    <KbRow keys="dd / yy / p" desc="Delete / yank / paste line" />
-                                    <KbRow keys="u / Ctrl+R" desc="Undo / redo" />
-                                    <KbRow keys="/ / n / N" desc="Search / next / prev" />
-                                    <KbRow keys="ci( / di&quot;" desc="Change/delete inside" />
-                                    <div className="text-gray-500 font-medium mt-1.5 mb-0.5">Command</div>
-                                    <KbRow keys=":w" desc="Save" />
-                                    <KbRow keys=":noh" desc="Clear search highlight" />
-                                    <div className="text-gray-500 font-medium mt-1.5 mb-0.5">Visual Mode</div>
-                                    <KbRow keys="v / V / Ctrl+V" desc="Char / line / block select" />
-                                </>}
-                                {keybindMode === 'emacs' && <>
-                                    <KbRow keys="Ctrl+A / Ctrl+E" desc="Line start / end" />
-                                    <KbRow keys="Ctrl+F / Ctrl+B" desc="Forward / back char" />
-                                    <KbRow keys="Alt+F / Alt+B" desc="Forward / back word" />
-                                    <KbRow keys="Ctrl+N / Ctrl+P" desc="Next / previous line" />
-                                    <KbRow keys="Ctrl+K" desc="Kill to end of line" />
-                                    <KbRow keys="Ctrl+Y" desc="Yank (paste kill ring)" />
-                                    <KbRow keys="Ctrl+D" desc="Delete forward char" />
-                                    <KbRow keys="Ctrl+H" desc="Delete backward char" />
-                                    <KbRow keys="Ctrl+S" desc="Incremental search" />
-                                    <KbRow keys="Ctrl+G" desc="Cancel" />
-                                    <KbRow keys="Ctrl+Space" desc="Set mark" />
-                                    <KbRow keys="Ctrl+W" desc="Kill region" />
-                                    <KbRow keys="Cmd/Ctrl+S" desc="Save file" />
-                                </>}
-                                {keybindMode === 'nano' && <>
-                                    <KbRow keys="Ctrl+O" desc="Save file" />
-                                    <KbRow keys="Ctrl+K" desc="Cut line" />
-                                    <KbRow keys="Ctrl+U" desc="Paste" />
-                                    <KbRow keys="Ctrl+W" desc="Search" />
-                                    <KbRow keys="Ctrl+A" desc="Go to line start" />
-                                    <KbRow keys="Ctrl+E" desc="Go to line end" />
-                                    <KbRow keys="Cmd/Ctrl+Z" desc="Undo" />
-                                    <KbRow keys="Cmd/Ctrl+S" desc="Save file (alt)" />
-                                    <KbRow keys="Cmd/Ctrl+Enter" desc="Send selection to terminal" />
-                                </>}
+                            <div className="px-3 py-1.5 overflow-x-auto">
+                                {keybindMode === 'default' && (
+                                    <div className="flex gap-6 flex-wrap">
+                                        <div className="space-y-0.5">
+                                            <div className="text-gray-500 font-medium mb-0.5">File</div>
+                                            <KbRow keys="Ctrl+S" desc="Save" />
+                                            <KbRow keys="Ctrl+Z" desc="Undo" />
+                                            <KbRow keys="Ctrl+Shift+Z" desc="Redo" />
+                                        </div>
+                                        <div className="space-y-0.5">
+                                            <div className="text-gray-500 font-medium mb-0.5">Find</div>
+                                            <KbRow keys="Ctrl+F" desc="Find" />
+                                            <KbRow keys="Ctrl+H" desc="Replace" />
+                                            <KbRow keys="Ctrl+D" desc="Select next match" />
+                                        </div>
+                                        <div className="space-y-0.5">
+                                            <div className="text-gray-500 font-medium mb-0.5">Edit</div>
+                                            <KbRow keys="Ctrl+/" desc="Toggle comment" />
+                                            <KbRow keys="Tab / Shift+Tab" desc="Indent / dedent" />
+                                            <KbRow keys="Ctrl+Enter" desc="Run in terminal" />
+                                        </div>
+                                    </div>
+                                )}
+                                {keybindMode === 'vim' && (
+                                    <div className="flex gap-6 flex-wrap">
+                                        <div className="space-y-0.5">
+                                            <div className="text-gray-500 font-medium mb-0.5">Mode Switch</div>
+                                            <KbRow keys="i / a / o" desc="Insert / append / open line" />
+                                            <KbRow keys="I / A / O" desc="Insert start / append end / open above" />
+                                            <KbRow keys="Esc" desc="Back to normal" />
+                                            <KbRow keys="v / V / Ctrl+V" desc="Visual / line / block" />
+                                        </div>
+                                        <div className="space-y-0.5">
+                                            <div className="text-gray-500 font-medium mb-0.5">Movement</div>
+                                            <KbRow keys="h j k l" desc="Left / down / up / right" />
+                                            <KbRow keys="w / b / e" desc="Word fwd / back / end" />
+                                            <KbRow keys="0 / $ / ^" desc="Line start / end / first char" />
+                                            <KbRow keys="gg / G" desc="File start / end" />
+                                            <KbRow keys="{ / }" desc="Paragraph up / down" />
+                                            <KbRow keys="Ctrl+D / Ctrl+U" desc="Half page down / up" />
+                                            <KbRow keys="f{c} / t{c}" desc="Jump to / before char" />
+                                        </div>
+                                        <div className="space-y-0.5">
+                                            <div className="text-gray-500 font-medium mb-0.5">Edit</div>
+                                            <KbRow keys="dd / yy / p" desc="Delete / yank / paste line" />
+                                            <KbRow keys="dw / cw" desc="Delete / change word" />
+                                            <KbRow keys="x / r{c}" desc="Delete char / replace char" />
+                                            <KbRow keys="u / Ctrl+R" desc="Undo / redo" />
+                                            <KbRow keys="." desc="Repeat last edit" />
+                                            <KbRow keys=">> / <<" desc="Indent / dedent" />
+                                        </div>
+                                        <div className="space-y-0.5">
+                                            <div className="text-gray-500 font-medium mb-0.5">Text Objects</div>
+                                            <KbRow keys={'ci( / ci"'} desc="Change inside parens/quotes" />
+                                            <KbRow keys={'di{ / da['} desc="Delete inside/around brackets" />
+                                            <KbRow keys="yiw / yaw" desc="Yank inner/around word" />
+                                        </div>
+                                        <div className="space-y-0.5">
+                                            <div className="text-gray-500 font-medium mb-0.5">Search & Command</div>
+                                            <KbRow keys="/ / ? / n / N" desc="Search fwd/back, next/prev" />
+                                            <KbRow keys="* / #" desc="Search word under cursor" />
+                                            <KbRow keys=":w" desc="Save" />
+                                            <KbRow keys=":noh" desc="Clear highlight" />
+                                            <KbRow keys=":%s/a/b/g" desc="Find & replace" />
+                                        </div>
+                                    </div>
+                                )}
+                                {keybindMode === 'emacs' && (
+                                    <div className="flex gap-6 flex-wrap">
+                                        <div className="space-y-0.5">
+                                            <div className="text-gray-500 font-medium mb-0.5">Movement</div>
+                                            <KbRow keys="Ctrl+F / Ctrl+B" desc="Forward / back char" />
+                                            <KbRow keys="Alt+F / Alt+B" desc="Forward / back word" />
+                                            <KbRow keys="Ctrl+N / Ctrl+P" desc="Next / prev line" />
+                                            <KbRow keys="Ctrl+A / Ctrl+E" desc="Line start / end" />
+                                            <KbRow keys="Alt+< / Alt+>" desc="File start / end" />
+                                        </div>
+                                        <div className="space-y-0.5">
+                                            <div className="text-gray-500 font-medium mb-0.5">Delete & Kill</div>
+                                            <KbRow keys="Ctrl+D" desc="Delete forward char" />
+                                            <KbRow keys="Ctrl+H / Backspace" desc="Delete backward char" />
+                                            <KbRow keys="Alt+D" desc="Kill word forward" />
+                                            <KbRow keys="Ctrl+K" desc="Kill to end of line" />
+                                            <KbRow keys="Ctrl+W" desc="Kill region (cut)" />
+                                            <KbRow keys="Ctrl+Y" desc="Yank (paste from kill ring)" />
+                                            <KbRow keys="Alt+Y" desc="Cycle kill ring" />
+                                        </div>
+                                        <div className="space-y-0.5">
+                                            <div className="text-gray-500 font-medium mb-0.5">Selection & Search</div>
+                                            <KbRow keys="Ctrl+Space" desc="Set mark (start selection)" />
+                                            <KbRow keys="Ctrl+S" desc="Incremental search forward" />
+                                            <KbRow keys="Ctrl+R" desc="Incremental search backward" />
+                                            <KbRow keys="Ctrl+G" desc="Cancel / quit" />
+                                        </div>
+                                        <div className="space-y-0.5">
+                                            <div className="text-gray-500 font-medium mb-0.5">File</div>
+                                            <KbRow keys="Ctrl+X Ctrl+S" desc="Save (Emacs style)" />
+                                            <KbRow keys="Cmd/Ctrl+S" desc="Save (standard)" />
+                                            <KbRow keys="Ctrl+/" desc="Undo" />
+                                        </div>
+                                    </div>
+                                )}
+                                {keybindMode === 'nano' && (
+                                    <div className="flex gap-6 flex-wrap">
+                                        <div className="space-y-0.5">
+                                            <div className="text-gray-500 font-medium mb-0.5">File</div>
+                                            <KbRow keys="Ctrl+O" desc="Save (Write Out)" />
+                                            <KbRow keys="Ctrl+S" desc="Save (alt)" />
+                                        </div>
+                                        <div className="space-y-0.5">
+                                            <div className="text-gray-500 font-medium mb-0.5">Edit</div>
+                                            <KbRow keys="Ctrl+K" desc="Cut line" />
+                                            <KbRow keys="Ctrl+U" desc="Paste (Uncut)" />
+                                            <KbRow keys="Ctrl+Z" desc="Undo" />
+                                            <KbRow keys="Ctrl+Shift+Z" desc="Redo" />
+                                        </div>
+                                        <div className="space-y-0.5">
+                                            <div className="text-gray-500 font-medium mb-0.5">Navigation</div>
+                                            <KbRow keys="Ctrl+A / Ctrl+E" desc="Line start / end" />
+                                            <KbRow keys="Ctrl+W" desc="Search" />
+                                            <KbRow keys="Ctrl+Enter" desc="Run in terminal" />
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}
@@ -789,8 +963,8 @@ const CodeEditorPane = ({
             {editorContextMenuPos && activeContentPaneId === nodeId && (
                 <>
                     <div
-                        className="fixed inset-0 z-40"
-                        onClick={() => setEditorContextMenuPos(null)}
+                        className="fixed inset-0 z-40 bg-transparent"
+                        onMouseDown={() => setEditorContextMenuPos(null)}
                     />
                     <div
                         className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50"
@@ -906,8 +1080,8 @@ export default CodeEditorPane;
             <>
                 {/* Backdrop to catch outside clicks */}
                 <div
-                    className="fixed inset-0 z-40"
-                    onClick={() => setFileContextMenuPos(null)}
+                    className="fixed inset-0 z-40 bg-transparent"
+                    onMouseDown={() => setFileContextMenuPos(null)}
                 />
                 <div
                     className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50"

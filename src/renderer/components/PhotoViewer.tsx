@@ -101,7 +101,11 @@ const readJSONFile = (file) => new Promise((resolve, reject) => {
 
 const PhotoViewer = ({ currentPath, onStartConversation }) => {
     const aiEnabled = useAiEnabled();
-    const [activeTab, setActiveTab] = useState('gallery');
+    const [activeTab, _setActiveTab] = useState(() => localStorage.getItem('vixynt_activeTab') || 'gallery');
+    const setActiveTab = useCallback((tab: string) => {
+        _setActiveTab(tab);
+        localStorage.setItem('vixynt_activeTab', tab);
+    }, []);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
   
@@ -3634,20 +3638,36 @@ const renderVideoEditor = useCallback(() => {
                                 filters: [{ name: 'Media', extensions: ['mp4', 'mov', 'webm', 'avi', 'mkv', 'm4v', 'mp3', 'wav', 'aac', 'm4a'] }]
                             });
                             if (fileData && fileData.length > 0) {
-                                const newClips = fileData.map((file, i) => ({
-                                    id: `clip_${Date.now()}_${i}`,
-                                    type: file.name.match(/\.(mp3|wav|aac|m4a|ogg|flac)$/i) ? 'audio' : 'video',
-                                    src: `file://${file.path}`,
-                                    name: file.name,
-                                    startTime: 0,
-                                    duration: 10,
-                                    trackId: null,
-                                    x: 0,
-                                    trimStart: 0,
-                                    trimEnd: 0,
-                                    volume: 1,
-                                    speed: 1
-                                }));
+                                const newClips = fileData.map((file, i) => {
+                                    const clipId = `clip_${Date.now()}_${i}`;
+                                    const isAudio = !!file.name.match(/\.(mp3|wav|aac|m4a|ogg|flac)$/i);
+                                    const fileSrc = `file://${file.path}`;
+                                    // Probe actual duration
+                                    const el = document.createElement(isAudio ? 'audio' : 'video');
+                                    el.preload = 'metadata';
+                                    el.src = fileSrc;
+                                    el.addEventListener('loadedmetadata', () => {
+                                        const realDuration = el.duration;
+                                        if (realDuration && isFinite(realDuration) && realDuration > 0) {
+                                            setVideoClips(prev => prev.map(c => c.id === clipId ? { ...c, duration: realDuration } : c));
+                                        }
+                                        el.remove();
+                                    });
+                                    return {
+                                        id: clipId,
+                                        type: isAudio ? 'audio' : 'video',
+                                        src: fileSrc,
+                                        name: file.name,
+                                        startTime: 0,
+                                        duration: 10,
+                                        trackId: null,
+                                        x: 0,
+                                        trimStart: 0,
+                                        trimEnd: 0,
+                                        volume: 1,
+                                        speed: 1
+                                    };
+                                });
                                 setVideoClips(prev => [...prev, ...newClips]);
                             }
                         } catch (err) {
@@ -4393,7 +4413,7 @@ const renderVideoEditor = useCallback(() => {
                                             {/* Waveform/Thumbnail placeholder */}
                                             <div className="absolute bottom-0 left-0 right-0 h-3 flex items-end px-1 gap-px opacity-40">
                                                 {Array.from({ length: Math.min(30, Math.floor((clip.duration || 1) * 3)) }).map((_, i) => (
-                                                    <div key={i} className="flex-1 bg-white" style={{ height: `${20 + Math.random() * 80}%` }}/>
+                                                    <div key={i} className="flex-1 bg-white" style={{ height: `${20 + (Math.sin(i * 1.5 + (clip.id?.charCodeAt(0) || 0)) * 0.5 + 0.5) * 80}%` }}/>
                                                 ))}
                                             </div>
                                         </div>
@@ -5308,15 +5328,15 @@ return (
     <div className="flex-1 flex overflow-hidden">
       {renderSidebar()}
       <main className="flex-1 flex flex-col overflow-hidden relative">
-        {/* Mode Selector - Floating in upper left */}
-        <div className="absolute top-2 left-2 z-30">
-          <div className="relative group">
-            <button className="flex items-center gap-2 px-3 py-1.5 bg-gray-800/90 hover:bg-gray-700 rounded-lg border border-gray-600 text-sm backdrop-blur-sm">
+        {/* Mode Selector */}
+        <div className="flex-shrink-0 px-2 py-1">
+          <div className="relative group inline-block">
+            <button className="flex items-center gap-2 px-3 py-1.5 theme-bg-secondary theme-hover rounded-lg border theme-border text-sm">
               <CurrentIcon size={16} className="text-blue-400"/>
               <span className="font-medium">{currentMode.name}</span>
               <ChevronRight size={14} className="text-gray-500 rotate-90"/>
             </button>
-            <div className="absolute top-full left-0 mt-1 w-48 bg-gray-800/95 backdrop-blur-sm rounded-lg border border-gray-600 shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
+            <div className="absolute top-full left-0 mt-1 w-48 theme-bg-secondary backdrop-blur-sm rounded-lg border theme-border shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-40">
               <div className="py-1">
                 <div className="px-3 py-1 text-xs text-gray-500 uppercase">Browse</div>
                 {filteredModes.filter(m => m.group === 'browse').map(mode => {

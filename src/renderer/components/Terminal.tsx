@@ -173,6 +173,7 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
     const terminalRef = useRef(null);
     const xtermInstance = useRef(null);
     const fitAddonRef = useRef(null);
+    const resizeObserverRef = useRef<ResizeObserver | null>(null);
     const isSessionReady = useRef(false);
     const terminalOutputBuffer = useRef<string[]>([]);
     const initialPathRef = useRef(currentPath); // Capture initial path for terminal cwd
@@ -226,25 +227,11 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
         return saved ? parseFloat(saved) : 1;
     });
     const [settingsTab, setSettingsTab] = useState<'font' | 'cursor' | 'behavior' | 'theme'>('font');
-    const [terminalTheme, setTerminalTheme] = useState(() => {
-        return localStorage.getItem('terminal-theme') || 'default';
+    const [darkThemePreset, setDarkThemePreset] = useState(() => {
+        return localStorage.getItem('terminal-dark-theme') || 'default';
     });
-    const [customColors, setCustomColors] = useState(() => {
-        const saved = localStorage.getItem('terminal-custom-colors');
-        return saved ? JSON.parse(saved) : {
-            background: '#1a1b26',
-            foreground: '#c0caf5',
-            cursor: '#c0caf5',
-            selection: '#33467c',
-            black: '#15161e',
-            red: '#f7768e',
-            green: '#9ece6a',
-            yellow: '#e0af68',
-            blue: '#7aa2f7',
-            magenta: '#bb9af7',
-            cyan: '#7dcfff',
-            white: '#a9b1d6'
-        };
+    const [lightThemePreset, setLightThemePreset] = useState(() => {
+        return localStorage.getItem('terminal-light-theme') || 'light';
     });
     const [defaultShell, setDefaultShell] = useState(() => {
         return localStorage.getItem('terminal-default-shell') || 'system';
@@ -265,12 +252,13 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
     const paneData = contentDataRef.current[nodeId];
     const terminalId = paneData?.contentId;
 
-    // Store terminal output buffer in contentDataRef so chat can access it
+    // Store terminal output buffer and settings toggle in contentDataRef
     useEffect(() => {
         if (nodeId && contentDataRef.current[nodeId]) {
             contentDataRef.current[nodeId].getTerminalContext = () => {
                 return terminalOutputBuffer.current.join('').slice(-10000); // Last 10k chars
             };
+            contentDataRef.current[nodeId].toggleSettings = () => setShowSettings(prev => !prev);
         }
     }, [nodeId, contentDataRef]);
     // Use shell prop if provided (e.g., 'python3'), otherwise check paneData, default to 'system'
@@ -348,58 +336,27 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
         if (!terminalRef.current || !terminalId) return;
 
         if (!xtermInstance.current) {
-            const darkTheme = {
-                background: '#1a1b26',
-                foreground: '#c0caf5',
-                cursor: '#c0caf5',
-                cursorAccent: '#1a1b26',
-                selectionBackground: '#33467c',
-                black: '#32344a',
-                red: '#f7768e',
-                green: '#9ece6a',
-                yellow: '#e0af68',
-                blue: '#7aa2f7',
-                magenta: '#ad8ee6',
-                cyan: '#449dab',
-                white: '#787c99',
-                brightBlack: '#444b6a',
-                brightRed: '#ff7a93',
-                brightGreen: '#b9f27c',
-                brightYellow: '#ff9e64',
-                brightBlue: '#7da6ff',
-                brightMagenta: '#bb9af7',
-                brightCyan: '#0db9d7',
-                brightWhite: '#acb0d0'
-            };
-            const lightTheme = {
-                background: '#6dbf9e',
-                foreground: '#0f3d2d',
-                cursor: '#0f3d2d',
-                cursorAccent: '#6dbf9e',
-                selectionBackground: '#4a9a7a',
-                black: '#0f3d2d',
-                red: '#b91c1c',
-                green: '#14532d',
-                yellow: '#78350f',
-                blue: '#1e3a8a',
-                magenta: '#581c87',
-                cyan: '#164e63',
-                white: '#4a7a68',
-                brightBlack: '#2d5a48',
-                brightRed: '#dc2626',
-                brightGreen: '#166534',
-                brightYellow: '#a16207',
-                brightBlue: '#1d4ed8',
-                brightMagenta: '#7c3aed',
-                brightCyan: '#0e7490',
-                brightWhite: '#8ecfb8'
-            };
+            const initPresetKey = isDarkMode ? darkThemePreset : lightThemePreset;
+            const initPreset = THEME_PRESETS[initPresetKey] || THEME_PRESETS['default'];
             const term = new Terminal({
                 cursorBlink: true,
                 fontFamily: '"Fira Code", monospace',
                 fontSize: 14,
                 scrollback: scrollback,
-                theme: isDarkMode ? darkTheme : lightTheme,
+                theme: {
+                    background: initPreset.background,
+                    foreground: initPreset.foreground,
+                    cursor: initPreset.cursor,
+                    selectionBackground: initPreset.selection,
+                    black: initPreset.black,
+                    red: initPreset.red,
+                    green: initPreset.green,
+                    yellow: initPreset.yellow,
+                    blue: initPreset.blue,
+                    magenta: initPreset.magenta,
+                    cyan: initPreset.cyan,
+                    white: initPreset.white,
+                },
             });
             const fitAddon = new FitAddon();
             fitAddonRef.current = fitAddon;
@@ -470,6 +427,7 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                     });
                 }, 100); // 100ms debounce for smoother resize
             });
+            resizeObserverRef.current = resizeObserver;
             resizeObserver.observe(terminalRef.current);
 
             term.attachCustomKeyEventHandler((event) => {
@@ -789,6 +747,8 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
             inputHandler.dispose();
             removeDataListener();
             removeClosedListener();
+            resizeObserverRef.current?.disconnect();
+            resizeObserverRef.current = null;
             window.api.closeTerminalSession(terminalId);
         };
     }, [terminalId, shellType]); // Note: currentPath removed - use initialPathRef to avoid re-creating session on navigation
@@ -799,26 +759,27 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
         }
     }, [activeContentPaneId, nodeId]);
 
-    // Update terminal theme when dark mode changes
+    // Apply the correct theme preset based on dark/light mode
     useEffect(() => {
-        if (xtermInstance.current) {
-            const darkTheme = {
-                background: '#1a1b26',
-                foreground: '#c0caf5',
-                cursor: '#c0caf5',
-                cursorAccent: '#1a1b26',
-                selectionBackground: '#33467c',
-            };
-            const lightTheme = {
-                background: '#6dbf9e',
-                foreground: '#0f3d2d',
-                cursor: '#0f3d2d',
-                cursorAccent: '#6dbf9e',
-                selectionBackground: '#4a9a7a',
-            };
-            xtermInstance.current.options.theme = isDarkMode ? darkTheme : lightTheme;
-        }
-    }, [isDarkMode]);
+        if (!xtermInstance.current) return;
+        const presetKey = isDarkMode ? darkThemePreset : lightThemePreset;
+        const preset = THEME_PRESETS[presetKey] || THEME_PRESETS['default'];
+        xtermInstance.current.options.theme = {
+            background: preset.background,
+            foreground: preset.foreground,
+            cursor: preset.cursor,
+            selectionBackground: preset.selection,
+            black: preset.black,
+            red: preset.red,
+            green: preset.green,
+            yellow: preset.yellow,
+            blue: preset.blue,
+            magenta: preset.magenta,
+            cyan: preset.cyan,
+            white: preset.white,
+        };
+        xtermInstance.current.refresh(0, xtermInstance.current.rows - 1);
+    }, [isDarkMode, darkThemePreset, lightThemePreset]);
 
     // Apply all terminal settings when changed
     useEffect(() => {
@@ -854,87 +815,46 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
             localStorage.setItem('terminal-right-click-paste', String(rightClickPaste));
             localStorage.setItem('terminal-mac-option-meta', String(macOptionIsMeta));
             localStorage.setItem('terminal-alt-click-cursor', String(altClickMoveCursor));
-            localStorage.setItem('terminal-theme', terminalTheme);
-            localStorage.setItem('terminal-custom-colors', JSON.stringify(customColors));
+            localStorage.setItem('terminal-dark-theme', darkThemePreset);
+            localStorage.setItem('terminal-light-theme', lightThemePreset);
             localStorage.setItem('terminal-default-shell', defaultShell);
 
-            // Apply theme colors
-            if (terminalTheme === 'custom') {
-                xtermInstance.current.options.theme = {
-                    background: customColors.background,
-                    foreground: customColors.foreground,
-                    cursor: customColors.cursor,
-                    selectionBackground: customColors.selection,
-                    black: customColors.black,
-                    red: customColors.red,
-                    green: customColors.green,
-                    yellow: customColors.yellow,
-                    blue: customColors.blue,
-                    magenta: customColors.magenta,
-                    cyan: customColors.cyan,
-                    white: customColors.white
-                };
-            } else if (THEME_PRESETS[terminalTheme]) {
-                const preset = THEME_PRESETS[terminalTheme];
-                xtermInstance.current.options.theme = {
-                    background: preset.background,
-                    foreground: preset.foreground,
-                    cursor: preset.cursor,
-                    selectionBackground: preset.selection,
-                    black: preset.black,
-                    red: preset.red,
-                    green: preset.green,
-                    yellow: preset.yellow,
-                    blue: preset.blue,
-                    magenta: preset.magenta,
-                    cyan: preset.cyan,
-                    white: preset.white
-                };
-            }
+            // Theme colors are handled by the dedicated isDarkMode effect above
 
             xtermInstance.current.options.rightClickSelectsWord = rightClickPaste;
             xtermInstance.current.options.macOptionIsMeta = macOptionIsMeta;
             xtermInstance.current.options.altClickMovesCursor = altClickMoveCursor;
         }
-    }, [fontSize, fontFamily, cursorStyle, cursorBlink, lineHeight, scrollback, letterSpacing, fontWeight, fontWeightBold, drawBoldTextInBrightColors, minimumContrastRatio, bellStyle, copyOnSelect, rightClickPaste, macOptionIsMeta, altClickMoveCursor, terminalTheme, customColors, defaultShell]);
+    }, [fontSize, fontFamily, cursorStyle, cursorBlink, lineHeight, scrollback, letterSpacing, fontWeight, fontWeightBold, drawBoldTextInBrightColors, minimumContrastRatio, bellStyle, copyOnSelect, rightClickPaste, macOptionIsMeta, altClickMoveCursor, defaultShell, darkThemePreset, lightThemePreset]);
 
     if (!paneData) return null;
 
     return (
         <div
-            className="flex-1 flex flex-col theme-bg-secondary relative h-full"
+            className="flex-1 flex flex-col theme-bg-secondary relative h-full min-h-0 overflow-hidden"
             onContextMenu={handleContextMenu}
             data-terminal="true"
         >
-            {/* Settings button */}
-            <button
-                onClick={() => setShowSettings(!showSettings)}
-                className="absolute top-2 right-2 z-20 p-1.5 rounded hover:bg-gray-700/50 text-gray-400 hover:text-white transition-colors"
-                title="Terminal Settings"
-            >
-                <Settings size={14}/>
-            </button>
-
             {/* Settings panel */}
             {showSettings && (
-                <div className="absolute top-10 right-2 z-30 w-80 bg-gray-800 rounded-lg border border-gray-700 shadow-xl overflow-hidden">
-                    <div className="flex items-center justify-between p-3 border-b border-gray-700">
-                        <span className="text-sm font-medium">Terminal Settings</span>
-                        <button onClick={() => setShowSettings(false)} className="p-1 hover:bg-gray-700 rounded">
+                <div className="absolute top-10 right-2 z-30 w-80 theme-bg-secondary rounded-lg border theme-border shadow-xl overflow-hidden">
+                    <div className="flex items-center justify-between p-3 border-b theme-border">
+                        <span className="text-sm font-medium theme-text-primary">Terminal Settings</span>
+                        <button onClick={() => setShowSettings(false)} className="p-1 theme-hover rounded">
                             <X size={14}/>
                         </button>
                     </div>
 
                     {/* Tabs */}
-                    <div className="flex border-b border-gray-700">
+                    <div className="flex border-b theme-border">
                         {(['font', 'cursor', 'behavior', 'theme'] as const).map(tab => (
                             <button
                                 key={tab}
                                 onClick={() => setSettingsTab(tab)}
                                 className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
                                     settingsTab === tab
-                                        ? 'bg-gray-700 text-white border-b-2 border-purple-500'
-                                        : 'text-gray-400 hover:text-white hover:bg-gray-700/50'
+                                        ? 'theme-bg-tertiary theme-text-primary border-b-2 border-purple-500'
+                                        : 'theme-text-muted theme-hover'
                                 }`}
                             >
                                 {tab.charAt(0).toUpperCase() + tab.slice(1)}
@@ -946,11 +866,11 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                         {settingsTab === 'font' && (
                             <div className="space-y-3">
                                 <div>
-                                    <label className="text-xs text-gray-400 mb-1 block">Font Family</label>
+                                    <label className="text-xs theme-text-muted mb-1 block">Font Family</label>
                                     <select
                                         value={fontFamily}
                                         onChange={(e) => setFontFamily(e.target.value)}
-                                        className="w-full text-xs bg-gray-700 border border-gray-600 rounded px-2 py-1.5"
+                                        className="w-full text-xs theme-bg-tertiary border theme-border rounded px-2 py-1.5 theme-text-primary"
                                     >
                                         <option value='"Fira Code", monospace'>Fira Code</option>
                                         <option value='"JetBrains Mono", monospace'>JetBrains Mono</option>
@@ -967,7 +887,7 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="text-xs text-gray-400 mb-1 block">Font Size: {fontSize}px</label>
+                                    <label className="text-xs theme-text-muted mb-1 block">Font Size: {fontSize}px</label>
                                     <input
                                         type="range"
                                         min={8}
@@ -978,7 +898,7 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                                     />
                                 </div>
                                 <div>
-                                    <label className="text-xs text-gray-400 mb-1 block">Line Height: {lineHeight.toFixed(1)}</label>
+                                    <label className="text-xs theme-text-muted mb-1 block">Line Height: {lineHeight.toFixed(1)}</label>
                                     <input
                                         type="range"
                                         min={1}
@@ -990,7 +910,7 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                                     />
                                 </div>
                                 <div>
-                                    <label className="text-xs text-gray-400 mb-1 block">Letter Spacing: {letterSpacing}px</label>
+                                    <label className="text-xs theme-text-muted mb-1 block">Letter Spacing: {letterSpacing}px</label>
                                     <input
                                         type="range"
                                         min={-2}
@@ -1003,11 +923,11 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                                 </div>
                                 <div className="grid grid-cols-2 gap-2">
                                     <div>
-                                        <label className="text-xs text-gray-400 mb-1 block">Font Weight</label>
+                                        <label className="text-xs theme-text-muted mb-1 block">Font Weight</label>
                                         <select
                                             value={fontWeight}
                                             onChange={(e) => setFontWeight(e.target.value as any)}
-                                            className="w-full text-xs bg-gray-700 border border-gray-600 rounded px-2 py-1.5"
+                                            className="w-full text-xs theme-bg-tertiary border theme-border rounded px-2 py-1.5 theme-text-primary"
                                         >
                                             <option value="normal">Normal</option>
                                             <option value="bold">Bold</option>
@@ -1023,11 +943,11 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                                         </select>
                                     </div>
                                     <div>
-                                        <label className="text-xs text-gray-400 mb-1 block">Bold Weight</label>
+                                        <label className="text-xs theme-text-muted mb-1 block">Bold Weight</label>
                                         <select
                                             value={fontWeightBold}
                                             onChange={(e) => setFontWeightBold(e.target.value as any)}
-                                            className="w-full text-xs bg-gray-700 border border-gray-600 rounded px-2 py-1.5"
+                                            className="w-full text-xs theme-bg-tertiary border theme-border rounded px-2 py-1.5 theme-text-primary"
                                         >
                                             <option value="normal">Normal</option>
                                             <option value="bold">Bold</option>
@@ -1050,7 +970,7 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                                         onChange={(e) => setDrawBoldTextInBrightColors(e.target.checked)}
                                         className="accent-purple-500"
                                     />
-                                    <span className="text-gray-300">Bold text in bright colors</span>
+                                    <span className="theme-text-secondary">Bold text in bright colors</span>
                                 </label>
                             </div>
                         )}
@@ -1058,7 +978,7 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                         {settingsTab === 'cursor' && (
                             <div className="space-y-3">
                                 <div>
-                                    <label className="text-xs text-gray-400 mb-1 block">Cursor Style</label>
+                                    <label className="text-xs theme-text-muted mb-1 block">Cursor Style</label>
                                     <div className="grid grid-cols-3 gap-1">
                                         {(['block', 'underline', 'bar'] as const).map(style => (
                                             <button
@@ -1067,7 +987,7 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                                                 className={`px-3 py-2 text-xs rounded flex flex-col items-center gap-1 ${
                                                     cursorStyle === style
                                                         ? 'bg-purple-600 text-white'
-                                                        : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+                                                        : 'theme-bg-tertiary theme-hover theme-text-secondary'
                                                 }`}
                                             >
                                                 <span className="font-mono text-lg">
@@ -1085,10 +1005,10 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                                         onChange={(e) => setCursorBlink(e.target.checked)}
                                         className="accent-purple-500"
                                     />
-                                    <span className="text-gray-300">Cursor blink</span>
+                                    <span className="theme-text-secondary">Cursor blink</span>
                                 </label>
                                 <div>
-                                    <label className="text-xs text-gray-400 mb-1 block">Minimum Contrast: {minimumContrastRatio.toFixed(1)}</label>
+                                    <label className="text-xs theme-text-muted mb-1 block">Minimum Contrast: {minimumContrastRatio.toFixed(1)}</label>
                                     <input
                                         type="range"
                                         min={1}
@@ -1098,7 +1018,7 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                                         onChange={(e) => setMinimumContrastRatio(parseFloat(e.target.value))}
                                         className="w-full accent-purple-500"
                                     />
-                                    <p className="text-[10px] text-gray-500 mt-1">Higher values ensure better readability</p>
+                                    <p className="text-[10px] theme-text-muted mt-1">Higher values ensure better readability</p>
                                 </div>
                             </div>
                         )}
@@ -1106,7 +1026,7 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                         {settingsTab === 'behavior' && (
                             <div className="space-y-3">
                                 <div>
-                                    <label className="text-xs text-gray-400 mb-1 block">Scrollback Lines: {scrollback}</label>
+                                    <label className="text-xs theme-text-muted mb-1 block">Scrollback Lines: {scrollback}</label>
                                     <input
                                         type="range"
                                         min={100}
@@ -1118,11 +1038,11 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                                     />
                                 </div>
                                 <div>
-                                    <label className="text-xs text-gray-400 mb-1 block">Default Shell</label>
+                                    <label className="text-xs theme-text-muted mb-1 block">Default Shell</label>
                                     <select
                                         value={defaultShell}
                                         onChange={(e) => setDefaultShell(e.target.value)}
-                                        className="w-full text-xs bg-gray-700 border border-gray-600 rounded px-2 py-1.5"
+                                        className="w-full text-xs theme-bg-tertiary border theme-border rounded px-2 py-1.5 theme-text-primary"
                                     >
                                         <option value="system">System (Bash/Zsh)</option>
                                         <option value="npcsh">npcsh</option>
@@ -1131,11 +1051,11 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="text-xs text-gray-400 mb-1 block">Bell Style</label>
+                                    <label className="text-xs theme-text-muted mb-1 block">Bell Style</label>
                                     <select
                                         value={bellStyle}
                                         onChange={(e) => setBellStyle(e.target.value as any)}
-                                        className="w-full text-xs bg-gray-700 border border-gray-600 rounded px-2 py-1.5"
+                                        className="w-full text-xs theme-bg-tertiary border theme-border rounded px-2 py-1.5 theme-text-primary"
                                     >
                                         <option value="none">None</option>
                                         <option value="sound">Sound</option>
@@ -1143,7 +1063,7 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                                         <option value="both">Both</option>
                                     </select>
                                 </div>
-                                <div className="space-y-2 pt-2 border-t border-gray-700">
+                                <div className="space-y-2 pt-2 border-t theme-border">
                                     <label className="flex items-center gap-2 text-xs cursor-pointer">
                                         <input
                                             type="checkbox"
@@ -1151,7 +1071,7 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                                             onChange={(e) => setCopyOnSelect(e.target.checked)}
                                             className="accent-purple-500"
                                         />
-                                        <span className="text-gray-300">Copy on select</span>
+                                        <span className="theme-text-secondary">Copy on select</span>
                                     </label>
                                     <label className="flex items-center gap-2 text-xs cursor-pointer">
                                         <input
@@ -1160,7 +1080,7 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                                             onChange={(e) => setRightClickPaste(e.target.checked)}
                                             className="accent-purple-500"
                                         />
-                                        <span className="text-gray-300">Right-click to paste</span>
+                                        <span className="theme-text-secondary">Right-click to paste</span>
                                     </label>
                                     <label className="flex items-center gap-2 text-xs cursor-pointer">
                                         <input
@@ -1169,7 +1089,7 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                                             onChange={(e) => setMacOptionIsMeta(e.target.checked)}
                                             className="accent-purple-500"
                                         />
-                                        <span className="text-gray-300">Option as Meta key (Mac)</span>
+                                        <span className="theme-text-secondary">Option as Meta key (Mac)</span>
                                     </label>
                                     <label className="flex items-center gap-2 text-xs cursor-pointer">
                                         <input
@@ -1178,13 +1098,13 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                                             onChange={(e) => setAltClickMoveCursor(e.target.checked)}
                                             className="accent-purple-500"
                                         />
-                                        <span className="text-gray-300">Alt+Click moves cursor</span>
+                                        <span className="theme-text-secondary">Alt+Click moves cursor</span>
                                     </label>
                                 </div>
-                                <div className="pt-2 border-t border-gray-700 space-y-2">
+                                <div className="pt-2 border-t theme-border space-y-2">
                                     <button
                                         onClick={handleClear}
-                                        className="w-full text-xs px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded"
+                                        className="w-full text-xs px-3 py-2 theme-bg-tertiary theme-hover rounded theme-text-primary"
                                     >
                                         Clear Terminal
                                     </button>
@@ -1194,63 +1114,51 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
 
                         {settingsTab === 'theme' && (
                             <div className="space-y-3">
+                                <p className="text-xs theme-text-muted">Terminal auto-switches between your dark and light presets when you toggle the app theme.</p>
+
                                 <div>
-                                    <label className="text-xs text-gray-400 mb-1 block">Theme</label>
+                                    <label className="text-xs theme-text-muted mb-1 block">Dark Mode Theme</label>
                                     <select
-                                        value={terminalTheme}
-                                        onChange={(e) => {
-                                            const theme = e.target.value;
-                                            setTerminalTheme(theme);
-                                            if (theme !== 'custom' && THEME_PRESETS[theme]) {
-                                                setCustomColors(THEME_PRESETS[theme]);
-                                            }
-                                        }}
-                                        className="w-full text-xs bg-gray-700 border border-gray-600 rounded px-2 py-1.5"
+                                        value={darkThemePreset}
+                                        onChange={(e) => setDarkThemePreset(e.target.value)}
+                                        className="w-full text-xs theme-bg-tertiary border theme-border rounded px-2 py-1.5 theme-text-primary"
                                     >
-                                        <option value="default">Default</option>
-                                        <option value="dracula">Dracula</option>
-                                        <option value="monokai">Monokai</option>
-                                        <option value="solarized-dark">Solarized Dark</option>
-                                        <option value="solarized-light">Solarized Light</option>
-                                        <option value="nord">Nord</option>
-                                        <option value="gruvbox">Gruvbox</option>
-                                        <option value="one-dark">One Dark</option>
-                                        <option value="light">Light</option>
-                                        <option value="custom">Custom</option>
+                                        {Object.keys(THEME_PRESETS).map(key => (
+                                            <option key={key} value={key}>{key.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="text-xs theme-text-muted mb-1 block">Light Mode Theme</label>
+                                    <select
+                                        value={lightThemePreset}
+                                        onChange={(e) => setLightThemePreset(e.target.value)}
+                                        className="w-full text-xs theme-bg-tertiary border theme-border rounded px-2 py-1.5 theme-text-primary"
+                                    >
+                                        {Object.keys(THEME_PRESETS).map(key => (
+                                            <option key={key} value={key}>{key.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}</option>
+                                        ))}
                                     </select>
                                 </div>
 
                                 <div className="space-y-2">
-                                    <p className="text-xs text-gray-400">Colors {terminalTheme !== 'custom' && '(select Custom to edit)'}</p>
-                                    <div className="grid grid-cols-1 gap-2">
-                                        {Object.entries(customColors).map(([key, value]) => (
-                                            <div key={key} className="flex items-center gap-2">
-                                                <input
-                                                    type="color"
-                                                    value={value}
-                                                    onChange={(e) => {
-                                                        setTerminalTheme('custom');
-                                                        setCustomColors(prev => ({ ...prev, [key]: e.target.value }));
-                                                    }}
-                                                    className="w-6 h-6 rounded border-0 cursor-pointer"
-                                                />
-                                                <span className="text-[10px] text-gray-400 capitalize w-20">{key}</span>
-                                                <input
-                                                    type="text"
-                                                    value={value}
-                                                    onChange={(e) => {
-                                                        setTerminalTheme('custom');
-                                                        setCustomColors(prev => ({ ...prev, [key]: e.target.value }));
-                                                    }}
-                                                    className="flex-1 text-[10px] bg-gray-700 border border-gray-600 rounded px-2 py-1 font-mono"
-                                                    placeholder="#000000"
-                                                />
-                                            </div>
-                                        ))}
+                                    <p className="text-xs theme-text-muted">Current: {isDarkMode ? 'Dark' : 'Light'} mode — using <strong>{isDarkMode ? darkThemePreset : lightThemePreset}</strong></p>
+                                    <div className="grid grid-cols-6 gap-1">
+                                        {(() => {
+                                            const presetKey = isDarkMode ? darkThemePreset : lightThemePreset;
+                                            const preset = THEME_PRESETS[presetKey] || THEME_PRESETS['default'];
+                                            return Object.entries(preset).map(([key, color]) => (
+                                                <div key={key} className="flex flex-col items-center gap-0.5">
+                                                    <div className="w-5 h-5 rounded border theme-border" style={{ backgroundColor: color as string }} title={`${key}: ${color}`} />
+                                                    <span className="text-[8px] theme-text-muted truncate w-full text-center">{key}</span>
+                                                </div>
+                                            ));
+                                        })()}
                                     </div>
                                 </div>
 
-                                <div className="pt-2 border-t border-gray-700">
+                                <div className="pt-2 border-t theme-border">
                                     <button
                                         onClick={() => {
                                             // Reset all settings to defaults
@@ -1266,7 +1174,8 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                                             setDrawBoldTextInBrightColors(true);
                                             setMinimumContrastRatio(1);
                                             setBellStyle('none');
-                                            setTerminalTheme('default');
+                                            setDarkThemePreset('default');
+                                            setLightThemePreset('light');
                                             setCopyOnSelect(false);
                                             setRightClickPaste(true);
                                             setMacOptionIsMeta(false);
@@ -1288,8 +1197,8 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
             {contextMenu && (
                 <>
                     <div
-                        className="fixed inset-0 z-40"
-                        onClick={() => setContextMenu(null)}
+                        className="fixed inset-0 z-40 bg-transparent"
+                        onMouseDown={() => setContextMenu(null)}
                     />
                     <div
                         className="fixed theme-bg-tertiary shadow-lg rounded-md py-1 z-50 min-w-[140px] border theme-border"
@@ -1352,9 +1261,10 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
     );
 };
 
-// Custom comparison to prevent reload on pane resize
+// Custom comparison to prevent reload on pane resize, but allow theme changes
 const arePropsEqual = (prevProps: any, nextProps: any) => {
-    return prevProps.nodeId === nextProps.nodeId;
+    return prevProps.nodeId === nextProps.nodeId
+        && prevProps.isDarkMode === nextProps.isDarkMode;
 };
 
 export default memo(TerminalView, arePropsEqual);

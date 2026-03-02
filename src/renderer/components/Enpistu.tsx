@@ -45,6 +45,7 @@ import LatexViewer from './LatexViewer';
 import NotebookViewer from './NotebookViewer';
 import ExpViewer from './ExpViewer';
 import PicViewer from './PicViewer';
+import StlViewer from './StlViewer';
 import MindMapViewer from './MindMapViewer';
 import ZipViewer from './ZipViewer';
 import Scherzo from './Scherzo';
@@ -342,7 +343,7 @@ const ChatInterface = ({ onRerunSetup }: { onRerunSetup?: () => void }) => {
     const [fileContent, setFileContent] = useState('');
     const [isEditing, setIsEditing] = useState(false);
     const [fileChanged, setFileChanged] = useState(false);
-    const [isDarkMode, setIsDarkMode] = useState(true);
+    const [isDarkMode, setIsDarkMode] = useState(() => !document.body.classList.contains('light-mode'));
     const [isMacroInputOpen, setIsMacroInputOpen] = useState(false);
     const [macroText, setMacroText] = useState('');
     const [promptModal, setPromptModal] = useState<{ isOpen: boolean; title: string; message: string; defaultValue: string; onConfirm: ((value: string) => void) | null }>({ isOpen: false, title: '', message: '', defaultValue: '', onConfirm: null });
@@ -394,6 +395,57 @@ const ChatInterface = ({ onRerunSetup }: { onRerunSetup?: () => void }) => {
     const [topBarMenuOpen, setTopBarMenuOpen] = useState(false);
     const [currentTime, setCurrentTime] = useState(new Date());
     const [showCronDaemonPanel, setShowCronDaemonPanel] = useState(false);
+
+    // Pomodoro timer state — restore active timer from localStorage on refresh
+    const [pomodoroActive, setPomodoroActive] = useState(() => {
+        const saved = localStorage.getItem('incognide_pomodoroState');
+        if (saved) {
+            try { const s = JSON.parse(saved); return s.active || false; } catch { return false; }
+        }
+        return false;
+    });
+    const [pomodoroPhase, setPomodoroPhase] = useState<'work' | 'break'>(() => {
+        const saved = localStorage.getItem('incognide_pomodoroState');
+        if (saved) {
+            try { const s = JSON.parse(saved); return s.phase || 'work'; } catch { return 'work'; }
+        }
+        return 'work';
+    });
+    const [pomodoroSecondsLeft, setPomodoroSecondsLeft] = useState(() => {
+        const saved = localStorage.getItem('incognide_pomodoroState');
+        if (saved) {
+            try {
+                const s = JSON.parse(saved);
+                if (s.active && s.endTime) {
+                    const remaining = Math.round((s.endTime - Date.now()) / 1000);
+                    return remaining > 0 ? remaining : 0;
+                }
+            } catch { /* ignore */ }
+        }
+        return 0;
+    });
+    const [pomodoroWorkMins, setPomodoroWorkMins] = useState(() => {
+        const saved = localStorage.getItem('incognide_pomodoroWork');
+        return saved ? parseInt(saved) : 25;
+    });
+    const [pomodoroBreakMins, setPomodoroBreakMins] = useState(() => {
+        const saved = localStorage.getItem('incognide_pomodoroBreak');
+        return saved ? parseInt(saved) : 5;
+    });
+    const [pomodoroOnBreak, setPomodoroOnBreak] = useState(() => {
+        const saved = localStorage.getItem('incognide_pomodoroState');
+        if (saved) {
+            try { const s = JSON.parse(saved); return s.onBreak || false; } catch { return false; }
+        }
+        return false;
+    });
+    const [pomodoroConfigOpen, setPomodoroConfigOpen] = useState(false);
+    // Pomodoro schedule: array of { days: number[], startHour: number, startMinute: number }
+    const [pomodoroSchedule, setPomodoroSchedule] = useState<Array<{ days: number[]; startHour: number; startMinute: number }>>(() => {
+        const saved = localStorage.getItem('incognide_pomodoroSchedule');
+        if (saved) { try { return JSON.parse(saved); } catch { return []; } }
+        return [];
+    });
     const [showMemoryManager, setShowMemoryManager] = useState(false);
     const [gitModalOpen, setGitModalOpen] = useState(false);
 
@@ -406,12 +458,14 @@ const ChatInterface = ({ onRerunSetup }: { onRerunSetup?: () => void }) => {
         gitCommitHistory, gitSelectedFile, setGitSelectedFile,
         gitNewBranchName, setGitNewBranchName, gitSelectedCommit,
         gitFileDiff, setGitFileDiff,
-        loadGitStatus, gitStageFile, gitUnstageFile, gitCommitChanges,
+        loadGitStatus, gitStageFile, gitDiscardFile, gitUnstageFile, gitCommitChanges,
         gitPullChanges, gitPushChanges, gitPushWithUpstream, gitEnableAutoSetupRemote, gitPullAndPush,
         pushRejectedPrompt, setPushRejectedPrompt,
         loadGitDiff, loadGitBranches, loadGitHistory,
         gitCreateBranch, gitCheckoutBranch, gitDeleteBranch,
         loadCommitDetails, loadFileDiff,
+        gitCherryPick, gitCherryPickAbort, gitCherryPickContinue,
+        gitRevertCommit, gitResetToCommit, gitLogBranch,
     } = useGitOperations({ currentPath });
 
     const [workspaceModalOpen, setWorkspaceModalOpen] = useState(false);
@@ -652,6 +706,10 @@ const ChatInterface = ({ onRerunSetup }: { onRerunSetup?: () => void }) => {
     const searchInputRef = useRef(null);
     const topBarRef = useRef<HTMLDivElement>(null);
     const [topBarWidth, setTopBarWidth] = useState(1000);
+    const [searchExpanded, setSearchExpanded] = useState(false);
+    const [webSearchExpanded, setWebSearchExpanded] = useState(false);
+    const collapsedSearchRef = useRef<HTMLInputElement>(null);
+    const collapsedWebSearchRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         const el = topBarRef.current;
@@ -1078,6 +1136,98 @@ const ChatInterface = ({ onRerunSetup }: { onRerunSetup?: () => void }) => {
         return () => clearInterval(clockInterval);
     }, []);
 
+    // Pomodoro timer tick
+    useEffect(() => {
+        if (!pomodoroActive) return;
+        const interval = setInterval(() => {
+            setPomodoroSecondsLeft(prev => {
+                if (prev <= 1) {
+                    // Phase ended
+                    if (pomodoroPhase === 'work') {
+                        // Switch to break — lock UI
+                        setPomodoroPhase('break');
+                        setPomodoroOnBreak(true);
+                        return pomodoroBreakMins * 60;
+                    } else {
+                        // Break ended — back to work
+                        setPomodoroPhase('work');
+                        setPomodoroOnBreak(false);
+                        return pomodoroWorkMins * 60;
+                    }
+                }
+                return prev - 1;
+            });
+        }, 1000);
+        return () => clearInterval(interval);
+    }, [pomodoroActive, pomodoroPhase, pomodoroWorkMins, pomodoroBreakMins]);
+
+    // Persist pomodoro running state (survives refresh)
+    useEffect(() => {
+        localStorage.setItem('incognide_pomodoroState', JSON.stringify({
+            active: pomodoroActive,
+            phase: pomodoroPhase,
+            onBreak: pomodoroOnBreak,
+            endTime: pomodoroActive ? Date.now() + pomodoroSecondsLeft * 1000 : null,
+        }));
+    }, [pomodoroActive, pomodoroPhase, pomodoroOnBreak, pomodoroSecondsLeft]);
+
+    // Save pomodoro config
+    useEffect(() => {
+        localStorage.setItem('incognide_pomodoroWork', String(pomodoroWorkMins));
+    }, [pomodoroWorkMins]);
+    useEffect(() => {
+        localStorage.setItem('incognide_pomodoroBreak', String(pomodoroBreakMins));
+    }, [pomodoroBreakMins]);
+
+    // Save pomodoro schedule
+    useEffect(() => {
+        localStorage.setItem('incognide_pomodoroSchedule', JSON.stringify(pomodoroSchedule));
+    }, [pomodoroSchedule]);
+
+    // Pomodoro schedule checker — auto-start at scheduled times
+    useEffect(() => {
+        if (pomodoroSchedule.length === 0) return;
+        const checkSchedule = () => {
+            if (pomodoroActive) return; // already running
+            const now = new Date();
+            const day = now.getDay(); // 0=Sun
+            const hour = now.getHours();
+            const minute = now.getMinutes();
+            for (const entry of pomodoroSchedule) {
+                if (entry.days.includes(day) && entry.startHour === hour && entry.startMinute === minute) {
+                    setPomodoroActive(true);
+                    setPomodoroPhase('work');
+                    setPomodoroSecondsLeft(pomodoroWorkMins * 60);
+                    break;
+                }
+            }
+        };
+        checkSchedule();
+        const interval = setInterval(checkSchedule, 30000); // check every 30s
+        return () => clearInterval(interval);
+    }, [pomodoroSchedule, pomodoroActive, pomodoroWorkMins]);
+
+    const startPomodoro = useCallback(() => {
+        if (pomodoroActive) {
+            // Stop
+            setPomodoroActive(false);
+            setPomodoroOnBreak(false);
+            setPomodoroPhase('work');
+            setPomodoroSecondsLeft(0);
+        } else {
+            // Start work phase
+            setPomodoroActive(true);
+            setPomodoroPhase('work');
+            setPomodoroSecondsLeft(pomodoroWorkMins * 60);
+        }
+    }, [pomodoroActive, pomodoroWorkMins]);
+
+    const formatPomodoroTime = useCallback((secs: number) => {
+        const m = Math.floor(secs / 60);
+        const s = secs % 60;
+        return `${m}:${s.toString().padStart(2, '0')}`;
+    }, []);
+
     // Save sidebar collapsed states
     useEffect(() => {
         localStorage.setItem('sidebarFilesCollapsed', JSON.stringify(filesCollapsed));
@@ -1341,19 +1491,53 @@ const ChatInterface = ({ onRerunSetup }: { onRerunSetup?: () => void }) => {
                 return;
             }
 
-            // Ctrl+F - Local search in chat
+            // Ctrl+F - Context-aware find
             if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
-                const activePane = contentDataRef.current[activeContentPaneId];                // Let browser panes handle Ctrl+F natively
+                const activePane = contentDataRef.current[activeContentPaneId];
                 if (activePane?.contentType === 'browser') {
+                    // Trigger the browser pane's find bar directly
+                    e.preventDefault();
+                    e.stopPropagation();
+                    // Check parent pane first, then check virtual tab ids for multi-tab panes
+                    if (activePane.triggerFind) {
+                        activePane.triggerFind();
+                    } else {
+                        const tabIdx = activePane.activeTabIndex || 0;
+                        const activeTab = activePane.tabs?.[tabIdx];
+                        if (activeTab) {
+                            const virtualId = `${activeContentPaneId}_${activeTab.id}`;
+                            contentDataRef.current[virtualId]?.triggerFind?.();
+                        }
+                    }
                     return;
                 }
-                if ((activePane as any)?.contentType === 'chat') {
+                if (activePane?.contentType === 'chat') {
                     e.preventDefault();
                     e.stopPropagation();
                     setIsGlobalSearch(false);
                     setIsSearching(false);
                     setLocalSearch(prev => ({ ...prev, isActive: true, paneId: activeContentPaneId }));
+                    return;
                 }
+                if (activePane?.contentType === 'pdf') {
+                    // Click the rpv search button in the PDF toolbar
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const paneEl = document.querySelector(`[data-pane-id="${activeContentPaneId}"]`);
+                    // rpv search popover button has aria-label="Search" or specific rpv class
+                    const searchBtn = paneEl?.querySelector('.rpv-search__popover-target button, [aria-label="Search"], .rpv-toolbar button[data-testid*="search"]') as HTMLElement;
+                    if (searchBtn) {
+                        searchBtn.click();
+                    } else {
+                        // Fallback: try to find any rpv toolbar button that looks like search
+                        const buttons = paneEl?.querySelectorAll('.rpv-default-layout__toolbar button');
+                        buttons?.forEach((btn: any) => {
+                            if (btn.getAttribute('aria-label')?.toLowerCase()?.includes('search')) btn.click();
+                        });
+                    }
+                    return;
+                }
+                // For editor and other panes — let their native Ctrl+F handle it
             }
 
             // Ctrl+B - New Browser
@@ -1428,14 +1612,35 @@ const ChatInterface = ({ onRerunSetup }: { onRerunSetup?: () => void }) => {
                 return;
             }
 
-            // Ctrl+W - Close current tab/pane (prevent closing window)
+            // Ctrl+W - Close current tab (or whole pane if only one tab)
             if ((e.ctrlKey || e.metaKey) && (e.key === 'w' || e.key === 'W') && !e.shiftKey) {
                 e.preventDefault();
                 e.stopPropagation();
                 if (activeContentPaneId) {
-                    const nodePath = findNodePath(rootLayoutNodeRef.current, activeContentPaneId);
-                    if (nodePath) {
-                        closeContentPane(activeContentPaneId, nodePath);
+                    const paneData = contentDataRef.current[activeContentPaneId];
+                    const tabs = paneData?.tabs;
+                    if (tabs && tabs.length > 1) {
+                        // Close just the active tab
+                        const activeTabIndex = paneData.activeTabIndex || 0;
+                        const newTabs = [...tabs];
+                        newTabs.splice(activeTabIndex, 1);
+                        paneData.tabs = newTabs;
+                        if (paneData.activeTabIndex >= newTabs.length) {
+                            paneData.activeTabIndex = newTabs.length - 1;
+                        }
+                        const newActiveTab = newTabs[paneData.activeTabIndex];
+                        if (newActiveTab) {
+                            paneData.contentType = newActiveTab.contentType;
+                            paneData.contentId = newActiveTab.contentId;
+                        }
+                        // Force re-render
+                        setRootLayoutNode(prev => ({ ...prev }));
+                    } else {
+                        // Single tab or no tabs - close the whole pane
+                        const nodePath = findNodePath(rootLayoutNodeRef.current, activeContentPaneId);
+                        if (nodePath) {
+                            closeContentPane(activeContentPaneId, nodePath);
+                        }
                     }
                 }
                 return;
@@ -2406,6 +2611,7 @@ const renderChatView = useCallback(({ nodeId }) => {
                         let contentType = 'editor';
                         if (ext === 'pdf') contentType = 'pdf';
                         else if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'].includes(ext || '')) contentType = 'image';
+                        else if (ext === 'stl') contentType = 'stl';
                         else if (['csv', 'xlsx', 'xls'].includes(ext || '')) contentType = 'csv';
                         else if (['docx', 'doc'].includes(ext || '')) contentType = 'docx';
                         else if (ext === 'pptx') contentType = 'pptx';
@@ -2901,6 +3107,15 @@ const renderPicViewer = useCallback(({ nodeId }) => {
     );
 }, []);
 
+const renderStlViewer = useCallback(({ nodeId }) => {
+    return (
+        <StlViewer
+            nodeId={nodeId}
+            contentDataRef={contentDataRef}
+        />
+    );
+}, []);
+
 const renderMindMapViewer = useCallback(({ nodeId }) => {
     return (
         <MindMapViewer
@@ -3086,6 +3301,7 @@ const renderGitPane = useCallback(({ nodeId }: { nodeId: string }) => {
             loadGitHistory={loadGitHistory}
             loadCommitDetails={loadCommitDetails}
             gitStageFile={gitStageFile}
+            gitDiscardFile={gitDiscardFile}
             gitUnstageFile={gitUnstageFile}
             gitCommitChanges={gitCommitChanges}
             gitPushChanges={gitPushChanges}
@@ -3099,13 +3315,20 @@ const renderGitPane = useCallback(({ nodeId }: { nodeId: string }) => {
             pushRejectedPrompt={pushRejectedPrompt}
             setPushRejectedPrompt={setPushRejectedPrompt}
             openFileDiffPane={openFileDiffPane}
+            gitCherryPick={gitCherryPick}
+            gitCherryPickAbort={gitCherryPickAbort}
+            gitCherryPickContinue={gitCherryPickContinue}
+            gitRevertCommit={gitRevertCommit}
+            gitResetToCommit={gitResetToCommit}
+            gitLogBranch={gitLogBranch}
         />
     );
 }, [gitStatus, gitModalTab, gitDiffContent, gitBranches, gitCommitHistory, gitCommitMessage, gitNewBranchName, gitSelectedCommit, gitError,
     gitLoading, noUpstreamPrompt, pushRejectedPrompt,
     loadGitStatus, loadGitDiff, loadGitBranches, loadGitHistory, loadCommitDetails,
-    gitStageFile, gitUnstageFile, gitCommitChanges, gitPushChanges, gitPullChanges, gitCreateBranch, gitCheckoutBranch, gitDeleteBranch,
-    gitPushWithUpstream, gitEnableAutoSetupRemote, gitPullAndPush, setPushRejectedPrompt, openFileDiffPane]);
+    gitStageFile, gitDiscardFile, gitUnstageFile, gitCommitChanges, gitPushChanges, gitPullChanges, gitCreateBranch, gitCheckoutBranch, gitDeleteBranch,
+    gitPushWithUpstream, gitEnableAutoSetupRemote, gitPullAndPush, setPushRejectedPrompt, openFileDiffPane,
+    gitCherryPick, gitCherryPickAbort, gitCherryPickContinue, gitRevertCommit, gitResetToCommit, gitLogBranch]);
 
 
 // Render FolderViewer pane (for pane-based folder browsing)
@@ -3123,6 +3346,7 @@ const renderFolderViewerPane = useCallback(({ nodeId }: { nodeId: string }) => {
         else if (ext === 'pptx') contentType = 'pptx';
         else if (ext === 'tex') contentType = 'latex';
         else if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'].includes(ext || '')) contentType = 'image';
+        else if (ext === 'stl') contentType = 'stl';
 
         // Add as a new tab in the current pane
         if (paneData) {
@@ -5715,8 +5939,8 @@ ${contextPrompt}`;
             <>
                 {/* Backdrop to catch outside clicks */}
                 <div
-                    className="fixed inset-0 z-40"
-                    onClick={() => setMessageContextMenuPos(null)}
+                    className="fixed inset-0 z-40 bg-transparent"
+                    onMouseDown={() => setMessageContextMenuPos(null)}
                 />
                 <div
                     className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50"
@@ -6670,6 +6894,7 @@ const getChatInputProps = useCallback((paneId: string) => ({
         let contentType = 'editor';
         if (ext === 'pdf') contentType = 'pdf';
         else if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'].includes(ext || '')) contentType = 'image';
+        else if (ext === 'stl') contentType = 'stl';
         else if (['csv', 'xlsx', 'xls'].includes(ext || '')) contentType = 'csv';
         else if (['docx', 'doc'].includes(ext || '')) contentType = 'docx';
         else if (ext === 'pptx') contentType = 'pptx';
@@ -6871,6 +7096,7 @@ const paneRenderers = useMemo(() => ({
     notebook: renderNotebookViewer,
     exp: renderExpViewer,
     image: renderPicViewer,
+    stl: renderStlViewer,
     mindmap: renderMindMapViewer,
     zip: renderZipViewer,
     'data-labeler': renderDataLabelerPane,
@@ -6901,7 +7127,7 @@ const paneRenderers = useMemo(() => ({
 }), [
     renderChatView, renderFileEditor, renderTerminalView, renderPdfViewer,
     renderCsvViewer, renderDocxViewer, renderBrowserViewer, renderPptxViewer,
-    renderLatexViewer, renderNotebookViewer, renderExpViewer, renderPicViewer,
+    renderLatexViewer, renderNotebookViewer, renderExpViewer, renderPicViewer, renderStlViewer,
     renderMindMapViewer, renderZipViewer, renderDataLabelerPane, renderGraphViewerPane,
     renderBrowserGraphPane, renderDataDashPane, renderDBToolPane, renderNPCTeamPane,
     renderJinxPane, renderTeamManagementPane, renderSettingsPane, renderPhotoViewerPane,
@@ -6912,7 +7138,7 @@ const paneRenderers = useMemo(() => ({
 ]);
 
 const layoutComponentApi = useMemo(() => ({
-    rootLayoutNode,
+    get rootLayoutNode() { return rootLayoutNodeRef.current; },
     setRootLayoutNode,
     findNodeByPath,
     findNodePath,
@@ -6953,7 +7179,6 @@ const layoutComponentApi = useMemo(() => ({
     lockedPanes,
     togglePaneLocked: (nodeId: string) => { setLockedPanes(prev => { const next = new Set(prev); if (next.has(nodeId)) next.delete(nodeId); else next.add(nodeId); localStorage.setItem('incognide_lockedPanes', JSON.stringify([...next])); return next; }); },
 }), [
-    rootLayoutNode,
     findNodeByPath, findNodePath, activeContentPaneId,
     draggedItem, dropTarget, updateContentPane, performSplit, closeContentPane,
     moveContentPane, createAndAddPaneNodeToLayout,
@@ -6969,6 +7194,11 @@ const layoutComponentApi = useMemo(() => ({
     handleRunScript, handleNewBrowserTab, topBarCollapsed,
     currentPath, lockedPanes,
 ]);
+
+// Stable ref for layoutComponentApi — LayoutNode reads from this ref so it doesn't
+// need to re-render when the component object is recreated. The memo only checks `node`.
+const layoutComponentRef = useRef(layoutComponentApi);
+layoutComponentRef.current = layoutComponentApi;
 
 // Handle conversation selection - opens conversation in a pane
 const handleConversationSelect = async (conversationId: string, skipMessageLoad = false) => {
@@ -7078,6 +7308,7 @@ const handleFileClick = useCallback(async (filePath: string) => {
     else if (extension === 'mapx') contentType = 'mindmap';
     else if (extension === 'zip') contentType = 'zip';
     else if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(extension)) contentType = 'image';
+    else if (extension === 'stl') contentType = 'stl';
 
     createAndAddPaneNodeToLayout(contentType, filePath);
 }, [createAndAddPaneNodeToLayout]);
@@ -7161,7 +7392,7 @@ const renderPaneContextMenu = () => {
 
     return (
         <>
-            <div className="fixed inset-0 z-40" onClick={() => setPaneContextMenu(null)} />
+            <div className="fixed inset-0 z-40 bg-transparent" onMouseDown={() => setPaneContextMenu(null)} />
             <div
                 className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50 text-sm min-w-[160px]"
                 style={{ top: y, left: x }}
@@ -7563,6 +7794,16 @@ const renderMainContent = () => {
                 <BarChart3 size={18} />
             </button>
 
+            {/* Disk Usage Analyzer */}
+            <button
+                onClick={() => createDiskUsagePane?.()}
+                className="p-2 theme-hover rounded theme-text-muted"
+                title="Disk Usage Analyzer"
+                data-tutorial="disk-usage-button"
+            >
+                <HardDrive size={18} />
+            </button>
+
             <div className="flex-1" />
 
             {/* Collapse top bar */}
@@ -7574,19 +7815,46 @@ const renderMainContent = () => {
                 <ChevronUp size={14} />
             </button>
 
-            {/* App Search — collapses to icon button when top bar is narrow */}
+            {/* App Search — collapses to icon button when top bar is narrow, expands inline on click */}
             {topBarWidth < 900 ? (
-                <button
-                    data-tutorial="search-bar"
-                    onClick={() => {
-                        const q = window.prompt('Search files:');
-                        if (q?.trim()) createSearchPane(q.trim());
-                    }}
-                    className="p-1.5 theme-hover rounded theme-text-muted"
-                    title="Search files"
-                >
-                    <Search size={16} className="text-blue-400" />
-                </button>
+                searchExpanded ? (
+                    <div className="flex items-center gap-2 w-40 px-2 py-1 bg-black/40 border border-blue-400 rounded ring-1 ring-blue-400/30 transition-all">
+                        <Search size={14} className="text-blue-400 flex-shrink-0" />
+                        <input
+                            ref={collapsedSearchRef}
+                            autoFocus
+                            type="text"
+                            defaultValue=""
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    const val = (e.target as HTMLInputElement).value.trim();
+                                    if (val) {
+                                        e.preventDefault();
+                                        createSearchPane(val);
+                                        setSearchExpanded(false);
+                                    }
+                                } else if (e.key === 'Escape') {
+                                    setSearchExpanded(false);
+                                }
+                            }}
+                            onBlur={() => setTimeout(() => setSearchExpanded(false), 150)}
+                            className="flex-1 bg-transparent theme-text-primary text-xs focus:outline-none min-w-0"
+                            placeholder="Search files..."
+                        />
+                        <button onClick={() => setSearchExpanded(false)} className="p-0.5 theme-hover rounded">
+                            <X size={10} className="theme-text-muted" />
+                        </button>
+                    </div>
+                ) : (
+                    <button
+                        data-tutorial="search-bar"
+                        onClick={() => { setSearchExpanded(true); }}
+                        className="p-1.5 theme-hover rounded theme-text-muted"
+                        title="Search files"
+                    >
+                        <Search size={16} className="text-blue-400" />
+                    </button>
+                )
             ) : (
             <div
                 data-tutorial="search-bar"
@@ -7645,23 +7913,47 @@ const renderMainContent = () => {
             </div>
             )}
 
-            {/* Web Search — collapses to icon button when top bar is narrow */}
+            {/* Web Search — collapses to icon button when top bar is narrow, expands inline on click */}
             {topBarWidth < 900 ? (
-                <button
-                    data-tutorial="web-search-bar"
-                    onClick={() => {
-                        const q = window.prompt('Web search:');
-                        if (q?.trim()) {
-                            const provider = WEB_SEARCH_PROVIDERS[webSearchProvider];
-                            const url = provider.url + encodeURIComponent(q.trim());
-                            createNewBrowser(url);
-                        }
-                    }}
-                    className="p-1.5 theme-hover rounded theme-text-muted"
-                    title="Web search"
-                >
-                    <Globe size={16} className="text-cyan-400" />
-                </button>
+                webSearchExpanded ? (
+                    <div className="flex items-center gap-2 w-40 px-2 py-1 bg-black/40 border border-cyan-400 rounded ring-1 ring-cyan-400/30 transition-all">
+                        <Globe size={14} className="text-cyan-400 flex-shrink-0" />
+                        <input
+                            ref={collapsedWebSearchRef}
+                            autoFocus
+                            type="text"
+                            value={webSearchTerm}
+                            onChange={(e) => setWebSearchTerm(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' && webSearchTerm.trim()) {
+                                    e.preventDefault();
+                                    const provider = WEB_SEARCH_PROVIDERS[webSearchProvider];
+                                    const url = provider.url + encodeURIComponent(webSearchTerm.trim());
+                                    createNewBrowser(url);
+                                    setWebSearchTerm('');
+                                    setWebSearchExpanded(false);
+                                } else if (e.key === 'Escape') {
+                                    setWebSearchExpanded(false);
+                                }
+                            }}
+                            onBlur={() => { if (!webSearchTerm.trim()) setWebSearchExpanded(false); }}
+                            className="flex-1 bg-transparent theme-text-primary text-xs focus:outline-none min-w-0"
+                            placeholder="Web search..."
+                        />
+                        <button onClick={() => { setWebSearchTerm(''); setWebSearchExpanded(false); }} className="p-0.5 theme-hover rounded">
+                            <X size={10} className="theme-text-muted" />
+                        </button>
+                    </div>
+                ) : (
+                    <button
+                        data-tutorial="web-search-bar"
+                        onClick={() => { setWebSearchExpanded(true); }}
+                        className="p-1.5 theme-hover rounded theme-text-muted"
+                        title="Web search"
+                    >
+                        <Globe size={16} className="text-cyan-400" />
+                    </button>
+                )
             ) : (
             <div data-tutorial="web-search-bar" className="flex items-center gap-2 w-40 px-2 py-1 bg-black/40 border border-gray-600 rounded focus-within:border-cyan-400 focus-within:ring-1 focus-within:ring-cyan-400/30 transition-all">
                 <Globe size={14} className="text-cyan-400 flex-shrink-0" />
@@ -7683,6 +7975,80 @@ const renderMainContent = () => {
             </div>
             )}
 
+            {/* Pomodoro timer — right of web search */}
+            <div className="relative">
+                <button
+                    onClick={startPomodoro}
+                    onContextMenu={(e) => { e.preventDefault(); setPomodoroConfigOpen(prev => !prev); }}
+                    className={`p-1.5 rounded theme-text-muted transition-colors ${pomodoroActive ? (pomodoroPhase === 'work' ? 'bg-red-600/30 text-red-400' : 'bg-green-600/30 text-green-400') : 'theme-hover'}`}
+                    title={pomodoroActive ? `${pomodoroPhase === 'work' ? 'Working' : 'Break'} — ${formatPomodoroTime(pomodoroSecondsLeft)} left (click to stop, right-click to configure)` : 'Pomodoro Timer (right-click to configure)'}
+                >
+                    <span className="flex items-center gap-1">
+                        <svg width="16" height="16" viewBox="0 0 24 24">
+                            <ellipse cx="12" cy="14" rx="9" ry="8" fill={pomodoroActive ? (pomodoroPhase === 'work' ? '#ef4444' : '#22c55e') : '#9ca3af'} />
+                            <ellipse cx="9" cy="12" rx="3" ry="2.5" fill="rgba(255,255,255,0.2)" />
+                            <path d="M12 6 Q12 3 10 2" stroke="#22c55e" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+                            <path d="M12 5 Q15 3 17 4 Q15 5.5 12 5" fill="#22c55e" />
+                        </svg>
+                        {pomodoroActive && <span className="text-[10px] font-mono tabular-nums">{formatPomodoroTime(pomodoroSecondsLeft)}</span>}
+                    </span>
+                </button>
+                {pomodoroConfigOpen && (
+                    <>
+                        <div className="fixed inset-0 z-40 bg-transparent" onMouseDown={() => setPomodoroConfigOpen(false)} />
+                        <div className="absolute left-0 top-full mt-1 theme-bg-secondary border theme-border rounded shadow-xl z-50 p-3 min-w-[260px]">
+                            <div className="text-xs font-medium theme-text-primary mb-2">Pomodoro Settings</div>
+                            <label className="flex items-center justify-between text-xs theme-text-muted mb-1.5">
+                                <span>Work (min)</span>
+                                <input type="number" min="1" max="120" value={pomodoroWorkMins} onChange={e => setPomodoroWorkMins(Math.max(1, parseInt(e.target.value) || 1))} className="w-14 px-1 py-0.5 rounded theme-bg-primary theme-border border text-xs text-right theme-text-primary" />
+                            </label>
+                            <label className="flex items-center justify-between text-xs theme-text-muted mb-2">
+                                <span>Break (min)</span>
+                                <input type="number" min="1" max="60" value={pomodoroBreakMins} onChange={e => setPomodoroBreakMins(Math.max(1, parseInt(e.target.value) || 1))} className="w-14 px-1 py-0.5 rounded theme-bg-primary theme-border border text-xs text-right theme-text-primary" />
+                            </label>
+
+                            <div className="border-t theme-border pt-2 mt-1">
+                                <div className="text-xs font-medium theme-text-primary mb-1.5">Schedule</div>
+                                {pomodoroSchedule.map((entry, idx) => (
+                                    <div key={idx} className="flex items-center gap-1 mb-1 text-[10px] theme-text-muted">
+                                        <span className="flex-1">
+                                            {['Su','Mo','Tu','We','Th','Fr','Sa'].filter((_, i) => entry.days.includes(i)).join(',')}
+                                            {' '}at {String(entry.startHour).padStart(2,'0')}:{String(entry.startMinute).padStart(2,'0')}
+                                        </span>
+                                        <button onClick={() => setPomodoroSchedule(prev => prev.filter((_, i) => i !== idx))} className="text-red-400 hover:text-red-300 p-0.5"><X size={10} /></button>
+                                    </div>
+                                ))}
+                                <div className="flex items-center gap-1 mt-1">
+                                    <select
+                                        id="pomo-sched-days"
+                                        multiple
+                                        className="w-20 text-[10px] theme-bg-primary theme-border border rounded p-0.5 theme-text-primary"
+                                        style={{ height: '52px' }}
+                                    >
+                                        {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((d, i) => (
+                                            <option key={i} value={i}>{d}</option>
+                                        ))}
+                                    </select>
+                                    <input id="pomo-sched-time" type="time" defaultValue="09:00" className="text-[10px] theme-bg-primary theme-border border rounded px-1 py-0.5 theme-text-primary" />
+                                    <button
+                                        onClick={() => {
+                                            const sel = document.getElementById('pomo-sched-days') as HTMLSelectElement;
+                                            const timeInput = document.getElementById('pomo-sched-time') as HTMLInputElement;
+                                            const days = Array.from(sel.selectedOptions).map(o => parseInt(o.value));
+                                            const [h, m] = (timeInput.value || '09:00').split(':').map(Number);
+                                            if (days.length > 0) {
+                                                setPomodoroSchedule(prev => [...prev, { days, startHour: h, startMinute: m }]);
+                                            }
+                                        }}
+                                        className="text-[10px] px-1.5 py-0.5 rounded bg-blue-600/30 text-blue-400 hover:bg-blue-600/50"
+                                    >Add</button>
+                                </div>
+                            </div>
+                        </div>
+                    </>
+                )}
+            </div>
+
             <div className="flex-1" />
 
             {/* Right side - Library, Photo, Disk Usage, Cron/Daemon, Clock */}
@@ -7692,7 +8058,6 @@ const renderMainContent = () => {
                         <button onClick={() => createLibraryViewerPane?.()} className="p-2 theme-hover rounded theme-text-muted" title="Library"><BookOpen size={18} /></button>
                         <button onClick={() => createPhotoViewerPane?.()} className="p-2 theme-hover rounded theme-text-muted" title="Vixynt" data-tutorial="vixynt-button"><Image size={18} /></button>
                         <button onClick={() => createScherzoPane?.()} className="p-2 theme-hover rounded theme-text-muted" title="Scherzo" data-tutorial="scherzo-button"><Music size={18} /></button>
-                        <button onClick={() => createDiskUsagePane?.()} className="p-2 theme-hover rounded theme-text-muted" title="Disk Usage Analyzer" data-tutorial="disk-usage-button"><HardDrive size={18} /></button>
                         <button onClick={() => createCronDaemonPane()} className="p-2 theme-hover rounded theme-text-muted" title="Assembly Line (Cron, Daemons, SQL Models)" data-tutorial="cron-button">
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                 <rect x="5" y="10" width="5" height="12" rx="0.5" />
@@ -7714,12 +8079,12 @@ const renderMainContent = () => {
                         </button>
                         {topBarMenuOpen && (
                             <>
-                                <div className="fixed inset-0 z-40" onClick={() => setTopBarMenuOpen(false)} />
+                                <div className="fixed inset-0 z-40 bg-transparent" onMouseDown={() => setTopBarMenuOpen(false)} />
                                 <div className="absolute right-0 top-full mt-1 theme-bg-secondary border theme-border rounded shadow-xl z-50 py-1 min-w-[160px]">
                                     <button onClick={() => { createLibraryViewerPane?.(); setTopBarMenuOpen(false); }} className="flex items-center gap-2 px-3 py-1.5 w-full text-left theme-hover text-xs theme-text-primary"><BookOpen size={14} /> Library</button>
                                     <button onClick={() => { createPhotoViewerPane?.(); setTopBarMenuOpen(false); }} className="flex items-center gap-2 px-3 py-1.5 w-full text-left theme-hover text-xs theme-text-primary"><Image size={14} /> Vixynt</button>
+                                    <button onClick={() => { startPomodoro(); setTopBarMenuOpen(false); }} className="flex items-center gap-2 px-3 py-1.5 w-full text-left theme-hover text-xs theme-text-primary"><Clock size={14} /> {pomodoroActive ? `Pomodoro ${formatPomodoroTime(pomodoroSecondsLeft)}` : 'Pomodoro'}</button>
                                     <button onClick={() => { createScherzoPane?.(); setTopBarMenuOpen(false); }} className="flex items-center gap-2 px-3 py-1.5 w-full text-left theme-hover text-xs theme-text-primary"><Music size={14} /> Scherzo</button>
-                                    <button onClick={() => { createDiskUsagePane?.(); setTopBarMenuOpen(false); }} className="flex items-center gap-2 px-3 py-1.5 w-full text-left theme-hover text-xs theme-text-primary"><HardDrive size={14} /> Disk Usage</button>
                                     <button onClick={() => { createCronDaemonPane(); setTopBarMenuOpen(false); }} className="flex items-center gap-2 px-3 py-1.5 w-full text-left theme-hover text-xs theme-text-primary"><Zap size={14} /> Assembly Line</button>
                                 </div>
                             </>
@@ -7800,6 +8165,7 @@ const renderMainContent = () => {
                             else if (['docx', 'doc'].includes(extension)) contentType = 'docx';
                             else if (extension === 'mapx') contentType = 'mindmap';
                             else if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(extension)) contentType = 'image';
+                            else if (extension === 'stl') contentType = 'stl';
                             else contentType = 'editor';
                         } else {
                             contentType = 'editor';
@@ -8009,21 +8375,24 @@ const renderMainContent = () => {
         'diff': 'Diff',
         'browsergraph': 'Web Graph',
     };
-    const paneItems = Object.entries(contentDataRef.current).map(([paneId, data]: [string, any]) => {
-        const ct = data?.contentType || 'empty';
-        let title = PANE_TITLES[ct] || ct || 'Pane';
-        if (ct === 'chat') title = `Chat ${data?.contentId?.slice(-6) || ''}`;
-        else if (ct === 'editor') title = getFileName(data?.contentId) || 'File';
-        else if (ct === 'terminal') title = `Terminal${data?.shellType ? ` (${data.shellType})` : ''}`;
-        return { id: paneId, type: ct, title, isActive: paneId === activeContentPaneId };
-    });
+    const layoutPaneIds = rootLayoutNode ? new Set(collectPaneIds(rootLayoutNode)) : new Set<string>();
+    const paneItems = Object.entries(contentDataRef.current)
+        .filter(([paneId, data]) => layoutPaneIds.has(paneId) && data?.contentType)
+        .map(([paneId, data]: [string, any]) => {
+            const ct = data.contentType;
+            let title = PANE_TITLES[ct] || ct || 'Pane';
+            if (ct === 'chat') title = `Chat ${data?.contentId?.slice(-6) || ''}`;
+            else if (ct === 'editor') title = getFileName(data?.contentId) || 'File';
+            else if (ct === 'terminal') title = `Terminal${data?.shellType ? ` (${data.shellType})` : ''}`;
+            return { id: paneId, type: ct, title, isActive: paneId === activeContentPaneId };
+        });
 
     return (
         <main className={`flex-1 flex flex-col theme-bg-primary ${isDarkMode ? 'dark-mode' : 'light-mode'} overflow-hidden`}>
             {topBar}
             <div className="flex-1 flex overflow-hidden" data-tutorial="pane-area">
                 {rootLayoutNode ? (
-                    <LayoutNode node={rootLayoutNode} path={[]} component={layoutComponentApi} />
+                    <LayoutNode node={rootLayoutNode} path={[]} component={layoutComponentRef} />
                 ) : (
                     <div className="flex-1 flex items-center justify-center theme-text-muted">
                         {loading ? "Loading..." : "Drag a conversation or file to start."}
@@ -8071,6 +8440,53 @@ const renderMainContent = () => {
 
     return (
         <div className={`chat-container ${isDarkMode ? 'dark-mode' : 'light-mode'} h-screen flex flex-col theme-bg-primary theme-text-primary font-mono`}>
+{/* Pomodoro break overlay — blocks entire UI, no escape */}
+{pomodoroOnBreak && (
+    <div className="fixed inset-0 z-[99999] flex flex-col items-center justify-center bg-black" style={{ cursor: 'default' }}>
+        {/* Animated background circles */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+            {[...Array(6)].map((_, i) => (
+                <div
+                    key={i}
+                    className="absolute rounded-full opacity-[0.04]"
+                    style={{
+                        width: `${200 + i * 120}px`,
+                        height: `${200 + i * 120}px`,
+                        left: '50%',
+                        top: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        border: '1px solid #ef4444',
+                        animation: `pulse ${3 + i * 0.7}s ease-in-out infinite alternate`,
+                    }}
+                />
+            ))}
+        </div>
+        {/* Big tomato */}
+        <svg width="160" height="160" viewBox="0 0 24 24" className="mb-8 drop-shadow-2xl" style={{ filter: 'drop-shadow(0 0 40px rgba(239,68,68,0.3))' }}>
+            <ellipse cx="12" cy="14" rx="9" ry="8" fill="#ef4444" />
+            <ellipse cx="9" cy="12" rx="3.5" ry="3" fill="rgba(255,255,255,0.15)" />
+            <ellipse cx="7.5" cy="11" rx="1.5" ry="1" fill="rgba(255,255,255,0.1)" />
+            <path d="M12 6 Q12 2 9 1" stroke="#22c55e" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+            <path d="M12 5 Q15.5 2.5 18 4 Q15 6 12 5" fill="#22c55e" />
+            <path d="M11.5 5.5 Q9 3 7 4.5 Q9 5.5 11.5 5.5" fill="#16a34a" />
+        </svg>
+        {/* Progress bar */}
+        <div className="w-64 h-1 bg-gray-800 rounded-full mb-8 overflow-hidden">
+            <div
+                className="h-full bg-red-500/60 rounded-full transition-all duration-1000"
+                style={{ width: `${((pomodoroBreakMins * 60 - pomodoroSecondsLeft) / (pomodoroBreakMins * 60)) * 100}%` }}
+            />
+        </div>
+        <div className="text-xl text-gray-400 mb-3 font-light">Take a break. Step away.</div>
+        {/* Only show countdown when under 60 seconds left */}
+        {pomodoroSecondsLeft <= 60 ? (
+            <div className="text-5xl font-mono text-white tabular-nums mt-4" style={{ animation: 'pulse 1s ease-in-out infinite' }}>{pomodoroSecondsLeft}</div>
+        ) : (
+            <div className="text-sm text-gray-600 mt-2">Stretch. Breathe. Look away from the screen.</div>
+        )}
+        <style>{`@keyframes pulse { 0%, 100% { opacity: 1; transform: translate(-50%, -50%) scale(1); } 50% { opacity: 0.6; transform: translate(-50%, -50%) scale(1.05); } }`}</style>
+    </div>
+)}
 <div className="flex flex-1 overflow-hidden">
     <Sidebar
         // Pass all necessary state and functions as props
@@ -8308,6 +8724,8 @@ const renderMainContent = () => {
                                     return renderLatexViewer({ nodeId: zenModePaneId, isZenMode: true, onToggleZen: () => setZenModePaneId(null) });
                                 case 'image':
                                     return renderPicViewer({ nodeId: zenModePaneId });
+                                case 'stl':
+                                    return renderStlViewer({ nodeId: zenModePaneId });
                                 case 'mindmap':
                                     return renderMindMapViewer({ nodeId: zenModePaneId });
                                 case 'notebook':

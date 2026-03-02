@@ -27,12 +27,14 @@ Built for seamless workflows, Incognide eliminates distractions and context swit
 
 ### Highlights
 
-- Write and run code, use terminals, build reusable workflows and tools that chain together natural language and templateable code through jinja execution templates.
-- Browse the web, read and annotate PDFs, analyze data and create dashboards, compile LaTeX.
+- Write and run code with Vim/Emacs/Nano keybindings, use terminals, build reusable workflows and tools that chain together natural language and templateable code through jinja execution templates.
+- Browse the web, read and annotate PDFs, view 3D STL models, analyze data and create dashboards, compile LaTeX.
 - Edit DOCX, XLSX, PPTX, MAPX.
-- Arrange chats, editors, PDFs, browsers, terminals as your work evolves.
-- Manage agents, have them run on jobs, edit team context, integrate with MCP Servers, approve or rejected suggested memories, prune and evolve knowledge graphs.
+- Arrange chats, editors, PDFs, browsers, terminals, 3D viewers as your work evolves — each tab maintains independent state.
+- Manage agents, have them run on scheduled jobs, edit team context, integrate with MCP Servers, approve or reject suggested memories, prune and evolve knowledge graphs.
+- Schedule automated memory extraction, knowledge graph evolution, and context compression.
 - Fine-tune your own image and text models using curated data from your conversations and memories.
+- Built-in Pomodoro timer with programmable schedules and break enforcement.
 
 ## Demo Video 
 Updated version coming soon....
@@ -54,10 +56,12 @@ Updated version coming soon....
 
 - [Office & Productivity](#office--productivity)
 - [Development](#development)
+- [3D & Media](#3d--media)
 - [Research & Knowledge Management](#research--knowledge-management)
 - [Model Training & Fine-tuning](#model-training--fine-tuning)
 - [AI Chat & Agents](#ai-chat--agents)
 - [Image Tools (Vixynt)](#image-tools-vixynt)
+- [Focus & Productivity](#focus--productivity)
 - [Settings & Customization](#settings--customization)
 - [Keyboard Shortcuts](#keyboard-shortcuts)
 - [Installation](#installation)
@@ -127,7 +131,7 @@ Browse the web alongside your documents and chat with AI about what you're viewi
 
 Write code with syntax highlighting, run scripts, and compile documents.
 
-**Code Editor and script execution** - Syntax highlighting for Python, JavaScript, TypeScript, and more. Run Python scripts directly and see output inline:
+**Code Editor and script execution** - Syntax highlighting for Python, JavaScript, TypeScript, and more. Vim, Emacs, and Nano keybinding modes with a toggleable cheat sheet. Run Python scripts directly and see output inline:
 
 ![script execution](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/script_execution.png)
 
@@ -158,6 +162,26 @@ Manipulate table results and plot data directly for quick analysis:
 **Git Manager** - Stage, commit, and manage branches without leaving Incognide:
 
 ![git manager](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/git_manager.png)
+
+---
+
+## 3D & Media
+
+### STL Viewer
+
+View 3D models directly in Incognide with a Three.js-powered viewer.
+
+*Features:*
+- Orbit, pan, and zoom with mouse controls
+- Wireframe, axes, and grid toggles in the pane header
+- Quick axis views (X, Y, Z) for front/side/top perspectives
+- Adjustable mesh color and opacity
+- Screenshot export of the current viewport
+- Model info: triangle count, vertex count, and bounding box dimensions
+
+### Music Player (Scherzo)
+
+Play audio files with a built-in music player and playlist management.
 
 ---
 
@@ -348,6 +372,8 @@ Jinxs are reusable automation templates that combine natural language prompts wi
 
 ![Cron jobs](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/cron_daemon.png)
 
+Schedule memory extraction, knowledge graph evolution (sleep/dream), and context compression as automated jobs. Configure guidance context to focus extraction on specific topics. Schedule directly from the Memory Manager or Knowledge Graph Editor.
+
 ---
 
 ## Image Tools (Vixynt)
@@ -369,6 +395,25 @@ Generate images using AI with reference images for style and composition:
 Simple photo editing with cropping, filters, and adjustments:
 
 ![DarkRoom](https://raw.githubusercontent.com/npc-worldwide/incognide/main/gh_images/darkroom.png)
+
+---
+
+## Focus & Productivity
+
+### Pomodoro Timer
+
+A built-in Pomodoro timer in the top bar helps maintain focus with enforced break periods.
+
+*Features:*
+- Configurable work and break durations (right-click to configure)
+- Full-screen break overlay that locks the UI during breaks
+- Persists across window refreshes — active timers survive reload
+- Programmable schedule: set specific days of the week and times for sessions to auto-start
+- Visual status: red during work, green during break
+
+### Backend Health Monitor
+
+The status bar shows Python backend health with a colored indicator. Right-click to restart if the backend becomes unresponsive.
 
 ---
 

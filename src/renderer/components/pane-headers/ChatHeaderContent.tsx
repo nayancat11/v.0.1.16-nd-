@@ -94,7 +94,7 @@ const ChatHeaderContent: React.FC<ChatHeaderContentProps> = ({
                         const rect = statsButtonRef.current?.getBoundingClientRect();
                         return (
                             <>
-                                <div className="fixed inset-0 z-40" onClick={() => setStatsExpanded(false)} />
+                                <div className="fixed inset-0 z-40 bg-transparent" onMouseDown={() => setStatsExpanded(false)} />
                                 <div
                                     className="fixed p-2 rounded theme-bg-secondary theme-border border shadow-lg z-50 min-w-[180px]"
                                     style={{ top: (rect?.bottom ?? 0) + 4, left: rect?.left ?? 0 }}

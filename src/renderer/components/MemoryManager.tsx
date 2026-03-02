@@ -91,7 +91,7 @@ const MemoryManager: React.FC<MemoryManagerProps> = ({
     const [fineTuneStatus, setFineTuneStatus] = useState<string | null>(null);
 
     // Dataset Curation State
-    const [activeTab, setActiveTab] = useState<'memories' | 'datasets'>('memories');
+    const [activeTab, setActiveTab] = useState<'memories' | 'datasets' | 'schedule'>('memories');
     const [instructionDatasets, setInstructionDatasets] = useState<InstructionDataset[]>(() => {
         try {
             const stored = localStorage.getItem('incognide_instructionDatasets');
@@ -103,6 +103,98 @@ const MemoryManager: React.FC<MemoryManagerProps> = ({
     const [showCreateDataset, setShowCreateDataset] = useState(false);
     const [showAddToDataset, setShowAddToDataset] = useState(false);
     const [contextPrompt, setContextPrompt] = useState('');
+
+    // Schedule State
+    const [extractSchedule, setExtractSchedule] = useState('0 */6 * * *');
+    const [extractGuidance, setExtractGuidance] = useState('');
+    const [extractLimit, setExtractLimit] = useState('50');
+    const [extractJobActive, setExtractJobActive] = useState<boolean | null>(null);
+    const [extractJobLog, setExtractJobLog] = useState<string[]>([]);
+    const [scheduleLoading, setScheduleLoading] = useState(false);
+    const [scheduleError, setScheduleError] = useState<string | null>(null);
+    const [scheduleSuccess, setScheduleSuccess] = useState<string | null>(null);
+
+    // Schedule presets
+    const SCHEDULE_PRESETS = [
+        { label: 'Every 6h', value: '0 */6 * * *' },
+        { label: 'Every 12h', value: '0 */12 * * *' },
+        { label: 'Daily midnight', value: '0 0 * * *' },
+        { label: 'Daily 9am', value: '0 9 * * *' },
+        { label: 'Weekdays 9am', value: '0 9 * * 1-5' },
+        { label: 'Weekly Sun', value: '0 0 * * 0' },
+    ];
+
+    // Check extraction job status
+    const checkExtractJobStatus = useCallback(async () => {
+        try {
+            const status = await (window as any).api?.jobStatus?.('memory_extract');
+            if (status && !status.error) {
+                setExtractJobActive(status.active ?? false);
+                setExtractJobLog(status.recent_log || []);
+            } else {
+                setExtractJobActive(false);
+                setExtractJobLog([]);
+            }
+        } catch {
+            setExtractJobActive(false);
+        }
+    }, []);
+
+    // Schedule extraction job
+    const handleScheduleExtract = async () => {
+        setScheduleLoading(true);
+        setScheduleError(null);
+        setScheduleSuccess(null);
+        try {
+            let cmd = `extract_memories limit=${extractLimit}`;
+            if (extractGuidance.trim()) {
+                cmd += ` context="${extractGuidance.trim().replace(/"/g, '\\"')}"`;
+            }
+            const result = await (window as any).api?.scheduleJob?.({
+                schedule: extractSchedule,
+                command: cmd,
+                jobName: 'memory_extract'
+            });
+            if (result?.error) {
+                setScheduleError(result.error);
+            } else {
+                setScheduleSuccess('Memory extraction job scheduled.');
+                checkExtractJobStatus();
+            }
+        } catch (err: any) {
+            setScheduleError(err.message || 'Failed to schedule job');
+        } finally {
+            setScheduleLoading(false);
+        }
+    };
+
+    // Unschedule extraction job
+    const handleUnscheduleExtract = async () => {
+        setScheduleLoading(true);
+        setScheduleError(null);
+        setScheduleSuccess(null);
+        try {
+            const result = await (window as any).api?.unscheduleJob?.('memory_extract');
+            if (result?.error) {
+                setScheduleError(result.error);
+            } else {
+                setScheduleSuccess('Memory extraction job removed.');
+                setExtractJobActive(false);
+                setExtractJobLog([]);
+            }
+        } catch (err: any) {
+            setScheduleError(err.message || 'Failed to unschedule job');
+        } finally {
+            setScheduleLoading(false);
+        }
+    };
+
+    // Check job status when schedule tab is opened
+    useEffect(() => {
+        if (activeTab === 'schedule') {
+            checkExtractJobStatus();
+        }
+    }, [activeTab, checkExtractJobStatus]);
 
     // Save datasets to localStorage
     useEffect(() => {
@@ -683,6 +775,15 @@ const MemoryManager: React.FC<MemoryManagerProps> = ({
                                 <Sparkles size={12} /> Training Datasets
                             </button>
                         )}
+                        <button
+                            onClick={() => setActiveTab('schedule')}
+                            className={`px-3 py-1 text-sm rounded flex items-center gap-1 ${
+                                activeTab === 'schedule' ? 'bg-amber-600 text-white' : 'text-gray-400 hover:text-white'
+                            }`}
+                        >
+                            <Clock size={12} /> Schedule
+                            {extractJobActive && <span className="w-1.5 h-1.5 bg-green-400 rounded-full" />}
+                        </button>
                     </div>
                 </div>
                 {!isPane && onClose && (
@@ -695,6 +796,130 @@ const MemoryManager: React.FC<MemoryManagerProps> = ({
             {activeTab === 'datasets' ? (
                 <div className="flex-1 overflow-hidden">
                     {renderDatasetsTab()}
+                </div>
+            ) : activeTab === 'schedule' ? (
+                <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                    {/* Memory Extraction Job */}
+                    <div className="border border-gray-700 rounded-lg p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                            <h4 className="text-sm font-semibold text-white flex items-center gap-2">
+                                <Database size={14} className="text-amber-400" />
+                                Memory Extraction
+                            </h4>
+                            {extractJobActive !== null && (
+                                <span className={`text-xs px-2 py-0.5 rounded ${extractJobActive ? 'bg-green-600/30 text-green-300' : 'bg-gray-600/30 text-gray-400'}`}>
+                                    {extractJobActive ? 'Active' : 'Not scheduled'}
+                                </span>
+                            )}
+                        </div>
+                        <p className="text-xs text-gray-400">
+                            Automatically extract memories from recent conversations and store them as pending approval.
+                        </p>
+
+                        {/* Schedule picker */}
+                        <div>
+                            <label className="text-xs text-gray-400 block mb-1">Frequency</label>
+                            <select
+                                value={extractSchedule}
+                                onChange={(e) => setExtractSchedule(e.target.value)}
+                                className="w-full px-3 py-1.5 text-sm bg-gray-800 text-white border border-gray-600 rounded focus:border-amber-500 focus:outline-none"
+                            >
+                                {SCHEDULE_PRESETS.map(p => (
+                                    <option key={p.value} value={p.value}>{p.label} ({p.value})</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {/* Limit */}
+                        <div>
+                            <label className="text-xs text-gray-400 block mb-1">Conversations to process per run</label>
+                            <input
+                                type="number"
+                                value={extractLimit}
+                                onChange={(e) => setExtractLimit(e.target.value)}
+                                min="1"
+                                max="500"
+                                className="w-full px-3 py-1.5 text-sm bg-gray-800 text-white border border-gray-600 rounded focus:border-amber-500 focus:outline-none"
+                            />
+                        </div>
+
+                        {/* Guidance */}
+                        <div>
+                            <label className="text-xs text-gray-400 block mb-1">Extraction guidance (optional)</label>
+                            <textarea
+                                value={extractGuidance}
+                                onChange={(e) => setExtractGuidance(e.target.value)}
+                                placeholder="e.g. Focus on technical decisions and architecture patterns..."
+                                rows={3}
+                                className="w-full px-3 py-1.5 text-sm bg-gray-800 text-white border border-gray-600 rounded focus:border-amber-500 focus:outline-none resize-none"
+                            />
+                        </div>
+
+                        {/* Action buttons */}
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={handleScheduleExtract}
+                                disabled={scheduleLoading}
+                                className="px-3 py-1.5 text-sm bg-amber-600 hover:bg-amber-500 text-white rounded disabled:opacity-50 flex items-center gap-1"
+                            >
+                                {scheduleLoading ? <Loader size={12} className="animate-spin" /> : <Clock size={12} />}
+                                {extractJobActive ? 'Update Schedule' : 'Schedule'}
+                            </button>
+                            {extractJobActive && (
+                                <button
+                                    onClick={handleUnscheduleExtract}
+                                    disabled={scheduleLoading}
+                                    className="px-3 py-1.5 text-sm bg-red-600/30 hover:bg-red-600/50 text-red-300 rounded disabled:opacity-50 flex items-center gap-1"
+                                >
+                                    <X size={12} /> Remove
+                                </button>
+                            )}
+                            <button
+                                onClick={checkExtractJobStatus}
+                                className="px-3 py-1.5 text-sm text-gray-400 hover:text-white rounded flex items-center gap-1"
+                            >
+                                <RefreshCw size={12} /> Refresh
+                            </button>
+                        </div>
+
+                        {/* Status messages */}
+                        {scheduleError && (
+                            <div className="text-xs text-red-400 bg-red-900/20 p-2 rounded">{scheduleError}</div>
+                        )}
+                        {scheduleSuccess && (
+                            <div className="text-xs text-green-400 bg-green-900/20 p-2 rounded">{scheduleSuccess}</div>
+                        )}
+
+                        {/* Recent log */}
+                        {extractJobLog.length > 0 && (
+                            <div className="mt-2">
+                                <label className="text-xs text-gray-400 block mb-1">Recent log</label>
+                                <div className="bg-gray-900 rounded p-2 max-h-32 overflow-y-auto">
+                                    {extractJobLog.map((line, i) => (
+                                        <div key={i} className="text-xs text-gray-500 font-mono">{line}</div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Pipeline info */}
+                    <div className="border border-gray-700/50 rounded-lg p-4 space-y-2">
+                        <h4 className="text-sm font-semibold text-gray-300 flex items-center gap-2">
+                            <ChevronRight size={14} /> Pipeline
+                        </h4>
+                        <div className="flex items-center gap-2 text-xs text-gray-400">
+                            <span className="px-2 py-0.5 bg-amber-600/20 text-amber-300 rounded">Extract</span>
+                            <ChevronRight size={10} />
+                            <span className="px-2 py-0.5 bg-gray-600/20 text-gray-300 rounded">Review &amp; Approve</span>
+                            <ChevronRight size={10} />
+                            <span className="px-2 py-0.5 bg-blue-600/20 text-blue-300 rounded">KG Backfill</span>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">
+                            Extracted memories land in "Pending Approval". Review them in the Memories tab,
+                            then schedule a KG Sleep with backfill in the Knowledge Graph editor to incorporate approved memories.
+                        </p>
+                    </div>
                 </div>
             ) : (
                 <>
