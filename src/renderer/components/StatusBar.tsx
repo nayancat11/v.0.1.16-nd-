@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
     MessageSquare, Terminal, Globe, FileText, File as FileIcon,
     BrainCircuit, Clock, Bot, Zap, Users, Database, ChevronRight, ChevronDown,
-    GitBranch, Image, BarChart3, AlertCircle, RefreshCw, Check, Columns, Layers
+    GitBranch, Image, BarChart3, AlertCircle, RefreshCw, Check, Columns, Layers,
+    Activity
 } from 'lucide-react';
 import MemoryIcon from './MemoryIcon';
 import { useAiEnabled } from './AiFeatureContext';
@@ -52,6 +53,8 @@ interface StatusBarProps {
     onToggleOpenMode?: () => void;
 }
 
+type BackendStatus = 'ok' | 'unhealthy' | 'unreachable' | 'restarting' | 'unknown';
+
 const StatusBar: React.FC<StatusBarProps> = ({
     createDBToolPane,
     createTeamManagementPane,
@@ -78,6 +81,78 @@ const StatusBar: React.FC<StatusBarProps> = ({
     const aiEnabled = useAiEnabled();
     const [checkingUpdates, setCheckingUpdates] = useState(false);
     const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
+    const [showBackendMenu, setShowBackendMenu] = useState(false);
+
+    // Backend health state
+    const [backendStatus, setBackendStatus] = useState<BackendStatus>('unknown');
+    const [backendPid, setBackendPid] = useState<number | null>(null);
+    const [failCount, setFailCount] = useState(0);
+    const [restarting, setRestarting] = useState(false);
+    const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+    const checkHealth = useCallback(async () => {
+        if (restarting) return;
+        try {
+            const result = await (window as any).api?.backendHealth?.();
+            if (!result) { setBackendStatus('unknown'); return; }
+            setBackendPid(result.pid || null);
+            if (result.status === 'ok') {
+                setBackendStatus('ok');
+                setFailCount(0);
+            } else {
+                setBackendStatus(result.status as BackendStatus);
+                setFailCount(prev => prev + 1);
+            }
+        } catch {
+            setBackendStatus('unreachable');
+            setFailCount(prev => prev + 1);
+        }
+    }, [restarting]);
+
+    useEffect(() => {
+        checkHealth();
+        pollRef.current = setInterval(checkHealth, 10000);
+        return () => { if (pollRef.current) clearInterval(pollRef.current); };
+    }, [checkHealth]);
+
+    const handleRestart = async () => {
+        if (restarting) return;
+        setRestarting(true);
+        setBackendStatus('restarting');
+        try {
+            const result = await (window as any).api?.backendRestart?.();
+            if (result?.success) {
+                setBackendStatus('ok');
+                setFailCount(0);
+            } else {
+                setBackendStatus('unreachable');
+            }
+        } catch {
+            setBackendStatus('unreachable');
+        } finally {
+            setRestarting(false);
+        }
+    };
+
+    const statusColor = backendStatus === 'ok'
+        ? 'bg-green-500'
+        : backendStatus === 'restarting'
+            ? 'bg-yellow-500 animate-pulse'
+            : backendStatus === 'unhealthy'
+                ? 'bg-yellow-500'
+                : backendStatus === 'unreachable'
+                    ? 'bg-red-500'
+                    : 'bg-gray-500';
+
+    const statusLabel = backendStatus === 'ok'
+        ? `Backend OK${backendPid ? ` (PID ${backendPid})` : ''}`
+        : backendStatus === 'restarting'
+            ? 'Restarting backend...'
+            : backendStatus === 'unhealthy'
+                ? 'Backend unhealthy — click to restart'
+                : backendStatus === 'unreachable'
+                    ? `Backend unreachable${failCount > 1 ? ` (${failCount} failures)` : ''} — click to restart`
+                    : 'Checking backend...';
 
     const handleCheckUpdates = async () => {
         if (checkingUpdates || downloadProgress !== null) return;
@@ -131,6 +206,43 @@ const StatusBar: React.FC<StatusBarProps> = ({
                     <ChevronRight size={20} />
                 </button>
             )}
+
+            {/* Python backend health indicator */}
+            <div className="relative group/backend">
+                <div
+                    onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setShowBackendMenu(true); }}
+                    className={`flex items-center gap-1.5 px-2 py-1 rounded transition-colors ${
+                        backendStatus === 'ok' ? 'text-gray-400' : 'text-red-400'
+                    }`}
+                    title={statusLabel + ' — right-click for options'}
+                >
+                    <span className={`w-2 h-2 rounded-full ${statusColor} flex-shrink-0`} />
+                    {restarting ? (
+                        <RefreshCw size={12} className="animate-spin text-yellow-400" />
+                    ) : backendStatus !== 'ok' && backendStatus !== 'unknown' ? (
+                        <Activity size={12} />
+                    ) : null}
+                    <span className="text-[10px]">
+                        {restarting ? 'Restarting...' : backendStatus === 'ok' ? 'Python' : backendStatus === 'unknown' ? 'Python...' : 'Python \u2717'}
+                    </span>
+                </div>
+                {showBackendMenu && (
+                    <>
+                        <div className="fixed inset-0 z-40 bg-transparent" onMouseDown={() => setShowBackendMenu(false)} />
+                        <div className="absolute bottom-full left-0 mb-1 bg-gray-900 border border-gray-700 rounded shadow-xl z-50 py-1 min-w-[140px]">
+                            <div className="px-3 py-1 text-[10px] text-gray-500 border-b border-gray-700">{statusLabel}</div>
+                            <button
+                                onClick={() => { handleRestart(); setShowBackendMenu(false); }}
+                                disabled={restarting}
+                                className="flex items-center gap-2 px-3 py-1.5 w-full text-left text-xs text-gray-300 hover:bg-white/10 disabled:opacity-50"
+                            >
+                                <RefreshCw size={12} /> Restart Backend
+                            </button>
+                        </div>
+                    </>
+                )}
+            </div>
+
             {/* Left side - DB, Memory (AI only), KG */}
             {/* DB Tool button */}
             <button

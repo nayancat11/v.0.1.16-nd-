@@ -32,11 +32,16 @@ readDocxContent: (filePath) =>
     executeJinx: (params) => ipcRenderer.invoke('executeJinx', params),
 
     getAvailableImageModels: (currentPath) => ipcRenderer.invoke('getAvailableImageModels', currentPath),
-    getCronDaemons: (currentPath) => ipcRenderer.invoke('getCronDaemons', currentPath),
-    addCronJob: (params) => ipcRenderer.invoke('addCronJob', params),
-    removeCronJob: (jobId) => ipcRenderer.invoke('removeCronJob', jobId),
+    getCronJobs: () => ipcRenderer.invoke('getCronJobs'),
+    scheduleJob: (params) => ipcRenderer.invoke('scheduleJob', params),
+    unscheduleJob: (jobName) => ipcRenderer.invoke('unscheduleJob', jobName),
+    jobStatus: (jobName) => ipcRenderer.invoke('jobStatus', jobName),
+    getCrontab: () => ipcRenderer.invoke('getCrontab'),
+    getSystemDaemons: () => ipcRenderer.invoke('getSystemDaemons'),
+    getServiceInfo: (unit) => ipcRenderer.invoke('getServiceInfo', unit),
     addDaemon: (params) => ipcRenderer.invoke('addDaemon', params),
     removeDaemon: (daemonId) => ipcRenderer.invoke('removeDaemon', daemonId),
+    getDaemons: () => ipcRenderer.invoke('getDaemons'),
 
    
     generateImages: (prompt, n, model, provider, attachments, baseFilename, currentPath) => ipcRenderer.invoke('generate_images', { prompt, n, model, provider, attachments, baseFilename,currentPath}),
@@ -77,6 +82,12 @@ readDocxContent: (filePath) =>
     gitAcceptTheirs: (repoPath, filePath) => ipcRenderer.invoke('gitAcceptTheirs', repoPath, filePath),
     gitMarkResolved: (repoPath, filePath) => ipcRenderer.invoke('gitMarkResolved', repoPath, filePath),
     gitAbortMerge: (repoPath) => ipcRenderer.invoke('gitAbortMerge', repoPath),
+    gitCherryPick: (repoPath, commitHash) => ipcRenderer.invoke('gitCherryPick', repoPath, commitHash),
+    gitCherryPickAbort: (repoPath) => ipcRenderer.invoke('gitCherryPickAbort', repoPath),
+    gitCherryPickContinue: (repoPath) => ipcRenderer.invoke('gitCherryPickContinue', repoPath),
+    gitRevert: (repoPath, commitHash) => ipcRenderer.invoke('gitRevert', repoPath, commitHash),
+    gitResetToCommit: (repoPath, commitHash, mode) => ipcRenderer.invoke('gitResetToCommit', repoPath, commitHash, mode),
+    gitLogBranch: (repoPath, branchName, options) => ipcRenderer.invoke('gitLogBranch', repoPath, branchName, options),
 
     // Terminal shortcut relay methods
     triggerNewTextFile: () => ipcRenderer.send('trigger-new-text-file'),
@@ -409,6 +420,12 @@ readDocxContent: (filePath) =>
     kg_embed: (args) => ipcRenderer.invoke('kg:embed', args),
     kg_getFacts: (args) => ipcRenderer.invoke('kg:getFacts', args),
     kg_getConcepts: (args) => ipcRenderer.invoke('kg:getConcepts', args),
+    kg_ingest: (args) => ipcRenderer.invoke('kg:ingest', args),
+    kg_query: (args) => ipcRenderer.invoke('kg:query', args),
+
+    // Backend health & restart
+    backendHealth: () => ipcRenderer.invoke('backend:health'),
+    backendRestart: () => ipcRenderer.invoke('backend:restart'),
 
     // Memory APIs
     memory_search: (args) => ipcRenderer.invoke('memory:search', args),

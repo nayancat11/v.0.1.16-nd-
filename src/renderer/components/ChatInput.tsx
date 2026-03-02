@@ -1235,6 +1235,124 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                     </div>
                 </div>
 
+                {/* MCP tools for tool_agent mode */}
+                {executionMode === 'tool_agent' && (
+                    <div className="px-2 pt-1 border-b theme-border overflow-visible">
+                        <div className="relative w-1/2" ref={mcpDropdownRef}>
+                            <button
+                                type="button"
+                                className="theme-input text-xs w-full text-left px-2 py-1 flex items-center justify-between rounded border"
+                                onMouseDown={(e) => e.stopPropagation()}
+                                onClick={() => setShowMcpServersDropdown((p: boolean) => !p)}
+                            >
+                                <span className="truncate">
+                                    {`MCP Servers (${availableMcpServers.length})`}
+                                </span>
+                                <ChevronDown size={12} />
+                            </button>
+                            {showMcpServersDropdown && (
+                                <div
+                                    className="absolute z-[100] w-full top-full mt-1 bg-black/90 border theme-border rounded shadow-lg max-h-56 overflow-y-auto"
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Escape') {
+                                            setShowMcpServersDropdown(false);
+                                        }
+                                    }}
+                                    tabIndex={-1}
+                                >
+                                    {availableMcpServers.length === 0 && (
+                                        <div className="px-2 py-1 text-xs theme-text-muted">No MCP servers in ctx</div>
+                                    )}
+                                    {/* Group by origin */}
+                                    {[...new Set(availableMcpServers.map((s: any) => s.origin))].map(origin => {
+                                        const serversForOrigin = availableMcpServers.filter((s: any) => s.origin === origin);
+                                        if (serversForOrigin.length === 0) return null;
+                                        const originLabel = origin?.startsWith('auto:') ? `🔄 ${origin.slice(5)}` : origin === 'global' ? '🌐 Global' : origin === 'project' ? '📁 Project' : origin;
+                                        return (
+                                            <div key={origin}>
+                                                <div className="px-2 py-1 text-[10px] uppercase theme-text-muted border-b theme-border">
+                                                    {originLabel}
+                                                </div>
+                                                {serversForOrigin.map((srv: any) => (
+                                                    <div key={srv.serverPath} className="border-b theme-border last:border-b-0">
+                                                        <div
+                                                            className={`px-2 py-1 text-xs theme-hover cursor-pointer flex items-center justify-between ${srv.serverPath === mcpServerPath ? 'bg-blue-500/20' : ''}`}
+                                                            onClick={() => {
+                                                                setMcpServerPath(srv.serverPath);
+                                                                setMcpToolsLoading(true);
+                                                                (window as any).api.listMcpTools({ serverPath: srv.serverPath, currentPath }).then((res: any) => {
+                                                                    setMcpToolsLoading(false);
+                                                                    if (res.error) {
+                                                                        setMcpToolsError(res.error);
+                                                                        setAvailableMcpTools([]);
+                                                                        setSelectedMcpTools([]);
+                                                                    } else {
+                                                                        setMcpToolsError(null);
+                                                                        const tools = res.tools || [];
+                                                                        setAvailableMcpTools(tools);
+                                                                        // Default: ALL tools selected
+                                                                        const allNames = tools.map((t: any) => t.function?.name).filter(Boolean);
+                                                                        setSelectedMcpTools(allNames);
+                                                                    }
+                                                                });
+                                                            }}
+                                                        >
+                                                            <span className="truncate">{getFileName(srv.serverPath)?.replace(/\.py$/, '') || srv.serverPath}</span>
+                                                        </div>
+                                                        {srv.serverPath === mcpServerPath && (
+                                                            <div className="px-3 py-1 space-y-1">
+                                                                {mcpToolsLoading && <div className="text-xs theme-text-muted">Loading MCP tools…</div>}
+                                                                {mcpToolsError && <div className="text-xs text-red-400">Error: {mcpToolsError}</div>}
+                                                                {!mcpToolsLoading && !mcpToolsError && (
+                                                                    <div className="flex flex-col gap-1">
+                                                                        {availableMcpTools.length === 0 && (
+                                                                            <div className="text-xs theme-text-muted">No tools available.</div>
+                                                                        )}
+                                                                        {availableMcpTools.map((tool: any) => {
+                                                                            const name = tool.function?.name || '';
+                                                                            const desc = tool.function?.description || '';
+                                                                            if (!name) return null;
+                                                                            const checked = selectedMcpTools.includes(name);
+                                                                            return (
+                                                                                <details key={name} className="bg-black/30 border theme-border rounded px-2 py-1">
+                                                                                    <summary className="flex items-center gap-2 text-xs theme-text-primary cursor-pointer">
+                                                                                        <input
+                                                                                            type="checkbox"
+                                                                                            checked={checked}
+                                                                                            disabled={isStreaming}
+                                                                                            onClick={(e) => e.stopPropagation()}
+                                                                                            onChange={() => {
+                                                                                                setSelectedMcpTools((prev: string[]) => {
+                                                                                                    if (prev.includes(name)) {
+                                                                                                        return prev.filter((n: string) => n !== name);
+                                                                                                    }
+                                                                                                    return [...prev, name];
+                                                                                                });
+                                                                                            }}
+                                                                                        />
+                                                                                        <span>{name}</span>
+                                                                                    </summary>
+                                                                                    <div className="ml-6 text-[11px] theme-text-muted whitespace-pre-wrap">
+                                                                                        {desc || 'No description.'}
+                                                                                    </div>
+                                                                                </details>
+                                                                            );
+                                                                        })}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
                 {/* Compact selector strip - now below input */}
                 <div className={`px-1.5 py-1 relative z-50 ${isStreaming ? 'opacity-50 pointer-events-none' : ''}`}>
                 <div className="flex items-center gap-1">
@@ -1488,7 +1606,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                                 <ChevronDown size={10} className={`transition-transform flex-shrink-0 text-purple-400 ${showJinxConfigDropdown ? 'rotate-180' : ''}`} />
                             </button>
                             {showJinxConfigDropdown && jinxConfigInputs.length > 0 && (
-                                <div className="absolute z-[100] right-0 bottom-full mb-1 bg-black/95 backdrop-blur-xl border border-purple-500/30 rounded-lg shadow-2xl overflow-hidden w-80">
+                                <div className="absolute z-[100] right-0 bottom-full mb-1 theme-bg-secondary backdrop-blur-xl border border-purple-500/30 rounded-lg shadow-2xl overflow-hidden w-80">
                                     <div className="px-3 py-2 border-b border-purple-500/20 flex items-center justify-between bg-gradient-to-r from-purple-900/30 to-pink-900/30">
                                         <span className="text-[10px] uppercase text-purple-300 font-medium flex items-center gap-1.5">
                                             <Zap size={10} /> {selectedJinx.name} Defaults
@@ -1502,7 +1620,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                                                 <div key={inp.name}>
                                                     <div className="flex items-center justify-between mb-1">
                                                         <label className="text-[11px] text-purple-300 font-medium">{inp.name}</label>
-                                                        <span className="text-[9px] text-gray-600">default: {inp.defaultVal.length > 20 ? inp.defaultVal.slice(0, 18) + '…' : inp.defaultVal}</span>
+                                                        <span className="text-[9px] theme-text-muted">default: {inp.defaultVal.length > 20 ? inp.defaultVal.slice(0, 18) + '…' : inp.defaultVal}</span>
                                                     </div>
                                                     <input
                                                         type="text"
@@ -1511,7 +1629,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                                                             ...prev,
                                                             [selectedJinx.name]: { ...prev[selectedJinx.name], [inp.name]: e.target.value }
                                                         }))}
-                                                        className="w-full text-xs bg-white/5 border border-purple-500/20 rounded px-2 py-1.5 text-gray-200 focus:border-purple-500/50 focus:outline-none"
+                                                        className="w-full text-xs theme-bg-tertiary border border-purple-500/20 rounded px-2 py-1.5 theme-text-primary focus:border-purple-500/50 focus:outline-none"
                                                         disabled={isStreaming}
                                                     />
                                                 </div>
@@ -1524,81 +1642,81 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                     ) : (
                         <div className="relative flex-1" ref={paramsDropdownRef}>
                             <button
-                                className="w-full h-8 flex items-center justify-center gap-2 rounded-lg text-xs font-medium transition-all duration-200 bg-white/5 text-gray-300 border border-white/10 hover:bg-white/10 px-2"
+                                className="w-full h-8 flex items-center justify-center gap-2 rounded-lg text-xs font-medium transition-all duration-200 theme-bg-tertiary theme-text-secondary border theme-border hover:opacity-80 px-2"
                                 onClick={() => { setShowParamsDropdown(!showParamsDropdown); setShowModelsDropdown(false); setShowNpcsDropdown(false); setShowJinxDropdown(false); }}
                             >
-                                <SlidersHorizontal size={10} className="flex-shrink-0 text-gray-500" />
+                                <SlidersHorizontal size={10} className="flex-shrink-0 theme-text-muted" />
                                 <div className="flex items-center gap-1 text-[9px]">
                                     <span style={{ color: getParamColor(genParams.temperature, 0, 2) }}>T{genParams.temperature}</span>
-                                    <span className="text-gray-600">·</span>
+                                    <span className="theme-text-muted">·</span>
                                     <span style={{ color: getParamColor(genParams.top_p, 0, 1) }}>P{genParams.top_p}</span>
-                                    <span className="text-gray-600">·</span>
+                                    <span className="theme-text-muted">·</span>
                                     <span style={{ color: getParamColor(genParams.top_k, 1, 100) }}>K{genParams.top_k}</span>
                                 </div>
-                                <ChevronDown size={10} className={`transition-transform flex-shrink-0 text-gray-500 ${showParamsDropdown ? 'rotate-180' : ''}`} />
+                                <ChevronDown size={10} className={`transition-transform flex-shrink-0 theme-text-muted ${showParamsDropdown ? 'rotate-180' : ''}`} />
                             </button>
                             {showParamsDropdown && (
-                                <div className="absolute z-[100] right-0 bottom-full mb-1 bg-black/95 backdrop-blur-xl border border-white/10 rounded-lg shadow-2xl overflow-hidden w-72">
-                                    <div className="px-3 py-2 border-b border-white/5 flex items-center justify-between">
-                                        <span className="text-[10px] uppercase text-gray-500 font-medium flex items-center gap-1.5">
+                                <div className="absolute z-[100] right-0 bottom-full mb-1 theme-bg-secondary backdrop-blur-xl border theme-border rounded-lg shadow-2xl overflow-hidden w-72">
+                                    <div className="px-3 py-2 border-b theme-border flex items-center justify-between">
+                                        <span className="text-[10px] uppercase theme-text-muted font-medium flex items-center gap-1.5">
                                             <SlidersHorizontal size={10} /> Generation Parameters
                                         </span>
-                                        <span className="text-[9px] text-gray-600">T:{genParams.temperature} P:{genParams.top_p} K:{genParams.top_k}</span>
+                                        <span className="text-[9px] theme-text-muted">T:{genParams.temperature} P:{genParams.top_p} K:{genParams.top_k}</span>
                                     </div>
                                     <div className="p-3 space-y-3">
                                         {/* Temperature */}
                                         <div>
                                             <div className="flex items-center justify-between mb-1">
-                                                <label className="text-[10px] text-gray-400">Temperature</label>
+                                                <label className="text-[10px] theme-text-muted">Temperature</label>
                                                 <input
                                                     type="number"
                                                     value={genParams.temperature}
                                                     onChange={(e) => setGenParams(p => ({ ...p, temperature: Math.max(0, Math.min(2, parseFloat(e.target.value) || 0)) }))}
-                                                    className="w-14 text-xs bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-right text-gray-200"
+                                                    className="w-14 text-xs theme-bg-tertiary border theme-border rounded px-1.5 py-0.5 text-right theme-text-primary"
                                                     step="0.1" min="0" max="2"
                                                 />
                                             </div>
                                             <input type="range" value={genParams.temperature} onChange={(e) => setGenParams(p => ({ ...p, temperature: parseFloat(e.target.value) }))}
-                                                className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-orange-500" min="0" max="2" step="0.1" />
-                                            <div className="flex justify-between text-[9px] text-gray-600 mt-0.5"><span>Precise</span><span>Creative</span></div>
+                                                className="w-full h-1.5 theme-bg-tertiary rounded-lg appearance-none cursor-pointer accent-orange-500" min="0" max="2" step="0.1" />
+                                            <div className="flex justify-between text-[9px] theme-text-muted mt-0.5"><span>Precise</span><span>Creative</span></div>
                                         </div>
 
                                         {/* Top P */}
                                         <div>
                                             <div className="flex items-center justify-between mb-1">
-                                                <label className="text-[10px] text-gray-400">Top P (nucleus)</label>
+                                                <label className="text-[10px] theme-text-muted">Top P (nucleus)</label>
                                                 <input type="number" value={genParams.top_p} onChange={(e) => setGenParams(p => ({ ...p, top_p: Math.max(0, Math.min(1, parseFloat(e.target.value) || 0)) }))}
-                                                    className="w-14 text-xs bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-right text-gray-200" step="0.05" min="0" max="1" />
+                                                    className="w-14 text-xs theme-bg-tertiary border theme-border rounded px-1.5 py-0.5 text-right theme-text-primary" step="0.05" min="0" max="1" />
                                             </div>
                                             <input type="range" value={genParams.top_p} onChange={(e) => setGenParams(p => ({ ...p, top_p: parseFloat(e.target.value) }))}
-                                                className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500" min="0" max="1" step="0.05" />
+                                                className="w-full h-1.5 theme-bg-tertiary rounded-lg appearance-none cursor-pointer accent-blue-500" min="0" max="1" step="0.05" />
                                         </div>
 
                                         {/* Top K */}
                                         <div>
                                             <div className="flex items-center justify-between mb-1">
-                                                <label className="text-[10px] text-gray-400">Top K</label>
+                                                <label className="text-[10px] theme-text-muted">Top K</label>
                                                 <input type="number" value={genParams.top_k} onChange={(e) => setGenParams(p => ({ ...p, top_k: Math.max(1, Math.min(100, parseInt(e.target.value) || 1)) }))}
-                                                    className="w-14 text-xs bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-right text-gray-200" step="1" min="1" max="100" />
+                                                    className="w-14 text-xs theme-bg-tertiary border theme-border rounded px-1.5 py-0.5 text-right theme-text-primary" step="1" min="1" max="100" />
                                             </div>
                                             <input type="range" value={genParams.top_k} onChange={(e) => setGenParams(p => ({ ...p, top_k: parseInt(e.target.value) }))}
-                                                className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-green-500" min="1" max="100" step="1" />
+                                                className="w-full h-1.5 theme-bg-tertiary rounded-lg appearance-none cursor-pointer accent-green-500" min="1" max="100" step="1" />
                                         </div>
 
                                         {/* Max Tokens */}
                                         <div>
                                             <div className="flex items-center justify-between mb-1">
-                                                <label className="text-[10px] text-gray-400">Max Tokens</label>
+                                                <label className="text-[10px] theme-text-muted">Max Tokens</label>
                                                 <input type="number" value={genParams.max_tokens} onChange={(e) => setGenParams(p => ({ ...p, max_tokens: Math.max(1, Math.min(32000, parseInt(e.target.value) || 1)) }))}
-                                                    className="w-16 text-xs bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-right text-gray-200" step="256" min="1" max="32000" />
+                                                    className="w-16 text-xs theme-bg-tertiary border theme-border rounded px-1.5 py-0.5 text-right theme-text-primary" step="256" min="1" max="32000" />
                                             </div>
                                             <input type="range" value={genParams.max_tokens} onChange={(e) => setGenParams(p => ({ ...p, max_tokens: parseInt(e.target.value) }))}
-                                                className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-500" min="256" max="32000" step="256" />
+                                                className="w-full h-1.5 theme-bg-tertiary rounded-lg appearance-none cursor-pointer accent-purple-500" min="256" max="32000" step="256" />
                                         </div>
 
                                         {/* Built-in Presets */}
-                                        <div className="pt-2 border-t border-white/5">
-                                            <div className="text-[10px] text-gray-500 uppercase mb-2">Presets</div>
+                                        <div className="pt-2 border-t theme-border">
+                                            <div className="text-[10px] theme-text-muted uppercase mb-2">Presets</div>
                                             <div className="flex flex-wrap gap-1 mb-2">
                                                 <button onClick={() => setGenParams({ temperature: 0.3, top_p: 0.9, top_k: 40, max_tokens: 4096 })} className="px-2 py-1 text-[10px] bg-blue-500/20 text-blue-300 rounded hover:bg-blue-500/30">Precise</button>
                                                 <button onClick={() => setGenParams({ temperature: 0.7, top_p: 0.9, top_k: 40, max_tokens: 4096 })} className="px-2 py-1 text-[10px] bg-gray-500/20 text-gray-300 rounded hover:bg-gray-500/30">Balanced</button>
@@ -1631,7 +1749,7 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                                                     value={newPresetName}
                                                     onChange={(e) => setNewPresetName(e.target.value)}
                                                     placeholder="Preset name..."
-                                                    className="flex-1 text-[10px] bg-white/5 border border-white/10 rounded px-2 py-1 text-gray-200 placeholder-gray-600"
+                                                    className="flex-1 text-[10px] theme-bg-tertiary border theme-border rounded px-2 py-1 theme-text-primary placeholder-gray-500"
                                                     onKeyDown={(e) => {
                                                         if (e.key === 'Enter' && newPresetName.trim()) {
                                                             const updated = [...customPresets, { name: newPresetName.trim(), params: { ...genParams } }];
@@ -1664,11 +1782,11 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                     )}
 
                     {/* Thinking / KG / Memory toggles */}
-                    <div className="flex items-center gap-0.5 pl-1 border-l border-white/10 ml-1">
+                    <div className="flex items-center gap-0.5 pl-1 border-l theme-border ml-1">
                         {/* Thinking toggle - only for models that support it */}
                         {(() => {
                             const m = currentModel?.toLowerCase() || '';
-                            const supportsThinking = m.includes('claude') || m.includes('deepseek-r1') || m.includes('o1') || m.includes('o3') || m.includes('qwq');
+                            const supportsThinking = m.includes('claude') || m.includes('deepseek-r1') || m.includes('o1') || m.includes('o3') || m.includes('qwq') || m.includes('gemini');
                             if (!supportsThinking) return null;
                             return (
                                 <button
@@ -1720,124 +1838,6 @@ const ChatInput: React.FC<ChatInputProps> = (props) => {
                     </div>
                 </div>
                 </div>
-
-{/* MCP tools for tool_agent mode */}
-                {executionMode === 'tool_agent' && (
-                    <div className="px-2 pb-1 border-t theme-border overflow-visible">
-                        <div className="relative w-1/2" ref={mcpDropdownRef}>
-                            <button
-                                type="button"
-                                className="theme-input text-xs w-full text-left px-2 py-1 flex items-center justify-between rounded border"
-                                onMouseDown={(e) => e.stopPropagation()}
-                                onClick={() => setShowMcpServersDropdown((p: boolean) => !p)}
-                            >
-                                <span className="truncate">
-                                    {`MCP Servers (${availableMcpServers.length})`}
-                                </span>
-                                <ChevronDown size={12} />
-                            </button>
-                            {showMcpServersDropdown && (
-                                <div
-                                    className="absolute z-[100] w-full bottom-full mb-1 bg-black/90 border theme-border rounded shadow-lg max-h-56 overflow-y-auto"
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Escape') {
-                                            setShowMcpServersDropdown(false);
-                                        }
-                                    }}
-                                    tabIndex={-1}
-                                >
-                                    {availableMcpServers.length === 0 && (
-                                        <div className="px-2 py-1 text-xs theme-text-muted">No MCP servers in ctx</div>
-                                    )}
-                                    {/* Group by origin */}
-                                    {[...new Set(availableMcpServers.map((s: any) => s.origin))].map(origin => {
-                                        const serversForOrigin = availableMcpServers.filter((s: any) => s.origin === origin);
-                                        if (serversForOrigin.length === 0) return null;
-                                        const originLabel = origin?.startsWith('auto:') ? `🔄 ${origin.slice(5)}` : origin === 'global' ? '🌐 Global' : origin === 'project' ? '📁 Project' : origin;
-                                        return (
-                                            <div key={origin}>
-                                                <div className="px-2 py-1 text-[10px] uppercase theme-text-muted border-b theme-border">
-                                                    {originLabel}
-                                                </div>
-                                                {serversForOrigin.map((srv: any) => (
-                                                    <div key={srv.serverPath} className="border-b theme-border last:border-b-0">
-                                                        <div
-                                                            className={`px-2 py-1 text-xs theme-hover cursor-pointer flex items-center justify-between ${srv.serverPath === mcpServerPath ? 'bg-blue-500/20' : ''}`}
-                                                            onClick={() => {
-                                                                setMcpServerPath(srv.serverPath);
-                                                                setMcpToolsLoading(true);
-                                                                (window as any).api.listMcpTools({ serverPath: srv.serverPath, currentPath }).then((res: any) => {
-                                                                    setMcpToolsLoading(false);
-                                                                    if (res.error) {
-                                                                        setMcpToolsError(res.error);
-                                                                        setAvailableMcpTools([]);
-                                                                        setSelectedMcpTools([]);
-                                                                    } else {
-                                                                        setMcpToolsError(null);
-                                                                        const tools = res.tools || [];
-                                                                        setAvailableMcpTools(tools);
-                                                                        // Default: ALL tools selected
-                                                                        const allNames = tools.map((t: any) => t.function?.name).filter(Boolean);
-                                                                        setSelectedMcpTools(allNames);
-                                                                    }
-                                                                });
-                                                            }}
-                                                        >
-                                                            <span className="truncate">{getFileName(srv.serverPath)?.replace(/\.py$/, '') || srv.serverPath}</span>
-                                                        </div>
-                                                        {srv.serverPath === mcpServerPath && (
-                                                            <div className="px-3 py-1 space-y-1">
-                                                                {mcpToolsLoading && <div className="text-xs theme-text-muted">Loading MCP tools…</div>}
-                                                                {mcpToolsError && <div className="text-xs text-red-400">Error: {mcpToolsError}</div>}
-                                                                {!mcpToolsLoading && !mcpToolsError && (
-                                                                    <div className="flex flex-col gap-1">
-                                                                        {availableMcpTools.length === 0 && (
-                                                                            <div className="text-xs theme-text-muted">No tools available.</div>
-                                                                        )}
-                                                                        {availableMcpTools.map((tool: any) => {
-                                                                            const name = tool.function?.name || '';
-                                                                            const desc = tool.function?.description || '';
-                                                                            if (!name) return null;
-                                                                            const checked = selectedMcpTools.includes(name);
-                                                                            return (
-                                                                                <details key={name} className="bg-black/30 border theme-border rounded px-2 py-1">
-                                                                                    <summary className="flex items-center gap-2 text-xs theme-text-primary cursor-pointer">
-                                                                                        <input
-                                                                                            type="checkbox"
-                                                                                            checked={checked}
-                                                                                            disabled={isStreaming}
-                                                                                            onClick={(e) => e.stopPropagation()}
-                                                                                            onChange={() => {
-                                                                                                setSelectedMcpTools((prev: string[]) => {
-                                                                                                    if (prev.includes(name)) {
-                                                                                                        return prev.filter((n: string) => n !== name);
-                                                                                                    }
-                                                                                                    return [...prev, name];
-                                                                                                });
-                                                                                            }}
-                                                                                        />
-                                                                                        <span>{name}</span>
-                                                                                    </summary>
-                                                                                    <div className="ml-6 text-[11px] theme-text-muted whitespace-pre-wrap">
-                                                                                        {desc || 'No description.'}
-                                                                                    </div>
-                                                                                </details>
-                                                                            );
-                                                                        })}
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                )}
 
             </div>
         </div>

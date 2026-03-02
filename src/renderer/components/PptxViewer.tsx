@@ -2567,7 +2567,7 @@ const PptxViewer = ({
       {/* Context Menu */}
       {pptxContextMenu && (
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setPptxContextMenu(null)} />
+          <div className="fixed inset-0 z-40 bg-transparent" onMouseDown={() => setPptxContextMenu(null)} />
           <div
             className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50 text-sm min-w-[160px]"
             style={{ top: pptxContextMenu.y, left: pptxContextMenu.x }}
@@ -2602,7 +2602,7 @@ const PptxViewer = ({
       {/* Slide Navigator Context Menu */}
       {slideNavContextMenu && (
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setSlideNavContextMenu(null)} />
+          <div className="fixed inset-0 z-40 bg-transparent" onMouseDown={() => setSlideNavContextMenu(null)} />
           <div
             className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50 text-sm min-w-[160px]"
             style={{ top: slideNavContextMenu.y, left: slideNavContextMenu.x }}

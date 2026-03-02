@@ -166,8 +166,12 @@ interface AudioDataset {
 
 export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
     const aiEnabled = useAiEnabled();
-    // Mode/tab state
-    const [activeMode, setActiveMode] = useState('library');
+    // Mode/tab state — persisted so it survives remounts
+    const [activeMode, _setActiveMode] = useState(() => localStorage.getItem('scherzo_activeMode') || 'library');
+    const setActiveMode = useCallback((mode: string) => {
+        _setActiveMode(mode);
+        localStorage.setItem('scherzo_activeMode', mode);
+    }, []);
 
     // Library state
     const [audioFiles, setAudioFiles] = useState<AudioFile[]>([]);
@@ -698,7 +702,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                 <div className="w-12 border-r theme-border theme-bg-secondary flex flex-col items-center py-2">
                     <button
                         onClick={() => setSidebarCollapsed(false)}
-                        className="p-2 hover:bg-gray-700 rounded mb-2"
+                        className="p-2 theme-hover rounded mb-2"
                         title="Expand sidebar"
                     >
                         <ChevronRight size={16}/>
@@ -718,7 +722,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                     </div>
                     <button
                         onClick={() => setSidebarCollapsed(true)}
-                        className="p-1 hover:bg-gray-700 rounded"
+                        className="p-1 theme-hover rounded"
                     >
                         <ChevronLeft size={16}/>
                     </button>
@@ -726,7 +730,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
 
                 {/* Source selector */}
                 <div className="p-3 border-b theme-border">
-                    <label className="text-xs text-gray-400 uppercase font-semibold">Source Folder</label>
+                    <label className="text-xs theme-text-muted uppercase font-semibold">Source Folder</label>
                     <div className="flex gap-2 mt-1">
                         <input
                             type="text"
@@ -748,7 +752,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                     console.error('Error selecting folder:', err);
                                 }
                             }}
-                            className="p-1.5 bg-gray-700 hover:bg-gray-600 rounded"
+                            className="p-1.5 theme-bg-tertiary theme-hover rounded"
                         >
                             <FolderOpen size={14}/>
                         </button>
@@ -758,7 +762,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                 {/* Search */}
                 <div className="p-3 border-b theme-border">
                     <div className="relative">
-                        <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500"/>
+                        <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 theme-text-muted"/>
                         <input
                             type="text"
                             value={searchQuery}
@@ -788,18 +792,18 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                 className={`p-2 rounded cursor-pointer flex items-center gap-2 mb-1 ${
                                     selectedAudio?.id === file.id
                                         ? 'bg-purple-600/30 border border-purple-500'
-                                        : 'hover:bg-gray-700/50'
+                                        : 'theme-hover'
                                 }`}
                             >
                                 <FileAudio size={14} className="text-purple-400 flex-shrink-0"/>
                                 <span className="text-xs truncate flex-1">{file.name}</span>
                                 {file.duration && (
-                                    <span className="text-xs text-gray-500">{formatTime(file.duration)}</span>
+                                    <span className="text-xs theme-text-muted">{formatTime(file.duration)}</span>
                                 )}
                             </div>
                         ))}
                     {audioFiles.length === 0 && (
-                        <div className="text-center py-8 text-gray-500">
+                        <div className="text-center py-8 theme-text-muted">
                             <Music size={32} className="mx-auto mb-2 opacity-50"/>
                             <p className="text-xs">No audio files</p>
                             <p className="text-xs mt-1">Select a source folder above</p>
@@ -809,13 +813,13 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
 
                 {/* Mini player */}
                 {selectedAudio && (
-                    <div className="p-3 border-t theme-border bg-gray-800/50">
+                    <div className="p-3 border-t theme-border theme-bg-secondary">
                         <div className="flex items-center gap-2 mb-2">
                             <FileAudio size={14} className="text-purple-400"/>
                             <span className="text-xs truncate flex-1">{selectedAudio.name}</span>
                             <button
                                 onClick={() => setVisualizerActive(!visualizerActive)}
-                                className={`p-1 rounded ${visualizerActive ? 'bg-purple-600 text-white' : 'hover:bg-gray-700 text-gray-400'}`}
+                                className={`p-1 rounded ${visualizerActive ? 'bg-purple-600 text-white' : 'theme-hover theme-text-muted'}`}
                                 title="Toggle Visualizer"
                             >
                                 <Activity size={14}/>
@@ -837,13 +841,13 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                             >
                                 {isPlaying ? <Pause size={14}/> : <Play size={14}/>}
                             </button>
-                            <div className="flex-1 h-1 bg-gray-700 rounded overflow-hidden">
+                            <div className="flex-1 h-1 theme-bg-tertiary rounded overflow-hidden">
                                 <div
                                     className="h-full bg-purple-500"
                                     style={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }}
                                 />
                             </div>
-                            <span className="text-xs text-gray-400">{formatTime(currentTime)}</span>
+                            <span className="text-xs theme-text-muted">{formatTime(currentTime)}</span>
                         </div>
                         <audio
                             ref={audioRef}
@@ -882,7 +886,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                             className={`p-4 rounded-xl cursor-pointer transition-all ${
                                 selectedAudio?.id === file.id
                                     ? 'bg-purple-600/30 ring-2 ring-purple-500'
-                                    : 'bg-gray-800/50 hover:bg-gray-700/50'
+                                    : 'theme-bg-secondary theme-hover'
                             }`}
                         >
                             <div className="aspect-square bg-gradient-to-br from-purple-600/20 to-pink-600/20 rounded-lg flex items-center justify-center mb-3">
@@ -890,7 +894,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                             </div>
                             <p className="text-sm font-medium truncate">{file.name}</p>
                             {file.duration && (
-                                <p className="text-xs text-gray-500 mt-1">{formatTime(file.duration)}</p>
+                                <p className="text-xs theme-text-muted mt-1">{formatTime(file.duration)}</p>
                             )}
                         </div>
                     ))}
@@ -898,9 +902,9 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                 {filteredFiles.length === 0 && (
                     <div className="flex items-center justify-center h-full">
                         <div className="text-center">
-                            <Music size={64} className="mx-auto text-gray-600 mb-4"/>
-                            <p className="text-gray-400 text-lg">No Audio Files</p>
-                            <p className="text-gray-600 text-sm mt-2">Select a source folder in the sidebar</p>
+                            <Music size={64} className="mx-auto theme-text-muted mb-4"/>
+                            <p className="theme-text-muted text-lg">No Audio Files</p>
+                            <p className="theme-text-muted text-sm mt-2">Select a source folder in the sidebar</p>
                         </div>
                     </div>
                 )}
@@ -919,7 +923,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                     </h3>
 
                     <div>
-                        <label className="text-xs text-gray-400 font-semibold uppercase">Prompt</label>
+                        <label className="text-xs theme-text-muted font-semibold uppercase">Prompt</label>
                         <textarea
                             value={genPrompt}
                             onChange={(e) => setGenPrompt(e.target.value)}
@@ -930,7 +934,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                     </div>
 
                     <div>
-                        <label className="text-xs text-gray-400 font-semibold uppercase">Model</label>
+                        <label className="text-xs theme-text-muted font-semibold uppercase">Model</label>
                         <select
                             value={genModel}
                             onChange={(e) => setGenModel(e.target.value)}
@@ -956,7 +960,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                     </div>
 
                     <div>
-                        <label className="text-xs text-gray-400 font-semibold uppercase">Duration (seconds)</label>
+                        <label className="text-xs theme-text-muted font-semibold uppercase">Duration (seconds)</label>
                         <div className="flex items-center gap-3 mt-2">
                             <input
                                 type="range"
@@ -988,7 +992,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                             }
                         }}
                         disabled={generating || !genPrompt || !genModel}
-                        className="w-full py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-semibold flex items-center justify-center gap-2"
+                        className="w-full py-3 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg font-semibold flex items-center justify-center gap-2"
                     >
                         {generating ? (
                             <>
@@ -1015,14 +1019,14 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                     if (selectionMode) setSelectedGeneratedAudio(new Set());
                                 }}
                                 className={`px-3 py-1.5 rounded text-xs flex items-center gap-1 ${
-                                    selectionMode ? 'bg-purple-600 text-white' : 'bg-gray-700 hover:bg-gray-600'
+                                    selectionMode ? 'bg-purple-600 text-white' : 'theme-bg-tertiary theme-hover'
                                 }`}
                             >
                                 <Layers size={12} /> Select
                             </button>
                             {selectionMode && selectedGeneratedAudio.size > 0 && (
                                 <>
-                                    <span className="text-xs text-gray-400">{selectedGeneratedAudio.size} selected</span>
+                                    <span className="text-xs theme-text-muted">{selectedGeneratedAudio.size} selected</span>
                                     <button
                                         onClick={() => setShowAddToDataset(true)}
                                         className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded text-xs flex items-center gap-1"
@@ -1040,11 +1044,11 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                 <div
                                     key={audio.id}
                                     onClick={() => selectionMode && toggleGeneratedSelection(audio.id)}
-                                    className={`bg-gray-800 rounded-xl p-4 ${
+                                    className={`theme-bg-secondary rounded-xl p-4 ${
                                         selectionMode
                                             ? selectedGeneratedAudio.has(audio.id)
                                                 ? 'ring-2 ring-purple-500 bg-purple-900/20 cursor-pointer'
-                                                : 'hover:bg-gray-700/50 cursor-pointer'
+                                                : 'theme-hover cursor-pointer'
                                             : ''
                                     }`}
                                 >
@@ -1061,7 +1065,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                         <Music size={32} className="text-purple-400"/>
                                     </div>
                                     <p className="text-sm truncate">{audio.name}</p>
-                                    <p className="text-xs text-gray-500">{formatTime(audio.duration || 0)}</p>
+                                    <p className="text-xs theme-text-muted">{formatTime(audio.duration || 0)}</p>
                                     <div className="flex gap-2 mt-3">
                                         <button className="flex-1 py-1.5 bg-purple-600/20 hover:bg-purple-600/30 rounded text-purple-400 text-xs">
                                             <Play size={12} className="inline mr-1"/> Play
@@ -1076,9 +1080,9 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                     ) : (
                         <div className="flex items-center justify-center h-full">
                             <div className="text-center">
-                                <Sparkles size={64} className="mx-auto text-gray-600 mb-4"/>
-                                <p className="text-gray-400 text-lg">Generate AI Audio</p>
-                                <p className="text-gray-600 text-sm mt-2">Enter a prompt and select a model</p>
+                                <Sparkles size={64} className="mx-auto theme-text-muted mb-4"/>
+                                <p className="theme-text-muted text-lg">Generate AI Audio</p>
+                                <p className="theme-text-muted text-sm mt-2">Enter a prompt and select a model</p>
                             </div>
                         </div>
                     )}
@@ -1087,13 +1091,13 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                     {/* Add to Dataset Modal */}
                     {showAddToDataset && (
                         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[200]" onClick={() => setShowAddToDataset(false)}>
-                            <div className="bg-gray-800 rounded-lg shadow-xl w-96 p-6" onClick={e => e.stopPropagation()}>
+                            <div className="theme-bg-secondary rounded-lg shadow-xl w-96 p-6" onClick={e => e.stopPropagation()}>
                                 <h4 className="text-lg font-semibold mb-4 flex items-center gap-2">
                                     <Plus className="text-purple-400" size={18} />
                                     Add to Dataset
                                 </h4>
                                 {audioDatasets.length === 0 ? (
-                                    <div className="text-center py-4 text-gray-500">
+                                    <div className="text-center py-4 theme-text-muted">
                                         <p>No datasets yet</p>
                                         <button
                                             onClick={() => { setShowAddToDataset(false); setActiveMode('datasets'); setShowCreateDataset(true); }}
@@ -1108,13 +1112,13 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                             <button
                                                 key={dataset.id}
                                                 onClick={() => addGeneratedToDataset(dataset.id)}
-                                                className="w-full p-3 bg-gray-700 hover:bg-gray-600 rounded text-left flex items-center justify-between"
+                                                className="w-full p-3 theme-bg-tertiary theme-hover rounded text-left flex items-center justify-between"
                                             >
                                                 <div>
                                                     <span className="font-medium">{dataset.name}</span>
-                                                    <span className="text-xs text-gray-500 ml-2">{dataset.examples.length} samples</span>
+                                                    <span className="text-xs theme-text-muted ml-2">{dataset.examples.length} samples</span>
                                                 </div>
-                                                <ChevronRight size={16} className="text-gray-500"/>
+                                                <ChevronRight size={16} className="theme-text-muted"/>
                                             </button>
                                         ))}
                                     </div>
@@ -1122,7 +1126,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                 <div className="flex justify-end mt-4">
                                     <button
                                         onClick={() => setShowAddToDataset(false)}
-                                        className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded"
+                                        className="px-4 py-2 theme-bg-tertiary theme-hover theme-text-primary rounded"
                                     >
                                         Cancel
                                     </button>
@@ -1911,7 +1915,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
             return (
                 <div className="flex gap-0.5 h-12">
                     {['left', 'right'].map(ch => (
-                        <div key={ch} className="w-1.5 bg-gray-800 rounded-sm overflow-hidden flex flex-col-reverse">
+                        <div key={ch} className="w-1.5 theme-bg-secondary rounded-sm overflow-hidden flex flex-col-reverse">
                             <div
                                 className={`transition-all duration-75 ${levels[ch as 'left' | 'right'] > 0.9 ? 'bg-red-500' : levels[ch as 'left' | 'right'] > 0.7 ? 'bg-yellow-500' : 'bg-green-500'}`}
                                 style={{ height: `${levels[ch as 'left' | 'right'] * 100}%` }}
@@ -1927,7 +1931,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
             const rotation = value * 135; // -135 to 135 degrees
             return (
                 <div
-                    className="w-6 h-6 rounded-full bg-gray-700 border-2 border-gray-600 cursor-pointer relative flex items-center justify-center"
+                    className="w-6 h-6 rounded-full theme-bg-tertiary border-2 theme-border cursor-pointer relative flex items-center justify-center"
                     onMouseDown={(e) => {
                         const startY = e.clientY;
                         const startVal = value;
@@ -1957,26 +1961,26 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
         return (
             <div className="flex-1 flex flex-col overflow-hidden">
                 {/* Main Toolbar */}
-                <div className="h-10 border-b theme-border flex items-center px-2 gap-1 bg-gradient-to-b from-gray-800 to-gray-850">
+                <div className="h-10 border-b theme-border flex items-center px-2 gap-1 theme-bg-secondary">
                     {/* Tool selection */}
-                    <div className="flex bg-gray-900 rounded p-0.5 mr-2">
+                    <div className="flex theme-bg-primary rounded p-0.5 mr-2">
                         <button
                             onClick={() => setEditorTool('select')}
-                            className={`p-1.5 rounded ${editorTool === 'select' ? 'bg-purple-600' : 'hover:bg-gray-700'}`}
+                            className={`p-1.5 rounded ${editorTool === 'select' ? 'bg-purple-600' : 'theme-hover'}`}
                             title="Select Tool (V)"
                         >
                             <MousePointer size={14}/>
                         </button>
                         <button
                             onClick={() => setEditorTool('move')}
-                            className={`p-1.5 rounded ${editorTool === 'move' ? 'bg-purple-600' : 'hover:bg-gray-700'}`}
+                            className={`p-1.5 rounded ${editorTool === 'move' ? 'bg-purple-600' : 'theme-hover'}`}
                             title="Move Tool (M)"
                         >
                             <Move size={14}/>
                         </button>
                         <button
                             onClick={() => setEditorTool('cut')}
-                            className={`p-1.5 rounded ${editorTool === 'cut' ? 'bg-purple-600' : 'hover:bg-gray-700'}`}
+                            className={`p-1.5 rounded ${editorTool === 'cut' ? 'bg-purple-600' : 'theme-hover'}`}
                             title="Cut Tool (C)"
                         >
                             <Scissors size={14}/>
@@ -1985,41 +1989,41 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
 
                     {/* Edit operations */}
                     <button onClick={editorUndo} disabled={undoStack.length === 0}
-                            className={`p-1.5 rounded ${undoStack.length > 0 ? 'hover:bg-gray-700' : 'opacity-40'}`} title="Undo (Ctrl+Z)">
+                            className={`p-1.5 rounded ${undoStack.length > 0 ? 'theme-hover' : 'opacity-40'}`} title="Undo (Ctrl+Z)">
                         <Undo size={14}/>
                     </button>
                     <button onClick={editorRedo} disabled={redoStack.length === 0}
-                            className={`p-1.5 rounded ${redoStack.length > 0 ? 'hover:bg-gray-700' : 'opacity-40'}`} title="Redo (Ctrl+Y)">
+                            className={`p-1.5 rounded ${redoStack.length > 0 ? 'theme-hover' : 'opacity-40'}`} title="Redo (Ctrl+Y)">
                         <Redo size={14}/>
                     </button>
-                    <div className="w-px h-5 bg-gray-700 mx-1"/>
+                    <div className="w-px h-5 theme-bg-tertiary mx-1"/>
                     <button onClick={cutClip} disabled={!selectedClipId}
-                            className={`p-1.5 rounded ${selectedClipId ? 'hover:bg-gray-700' : 'opacity-40'}`} title="Cut (Ctrl+X)">
+                            className={`p-1.5 rounded ${selectedClipId ? 'theme-hover' : 'opacity-40'}`} title="Cut (Ctrl+X)">
                         <Scissors size={14}/>
                     </button>
                     <button onClick={copyClip} disabled={!selectedClipId}
-                            className={`p-1.5 rounded ${selectedClipId ? 'hover:bg-gray-700' : 'opacity-40'}`} title="Copy (Ctrl+C)">
+                            className={`p-1.5 rounded ${selectedClipId ? 'theme-hover' : 'opacity-40'}`} title="Copy (Ctrl+C)">
                         <Copy size={14}/>
                     </button>
                     <button onClick={() => tracks.length > 0 && pasteClip(tracks[0].id, editorPlayhead)}
-                            disabled={!clipboard} className={`p-1.5 rounded ${clipboard ? 'hover:bg-gray-700' : 'opacity-40'}`} title="Paste (Ctrl+V)">
+                            disabled={!clipboard} className={`p-1.5 rounded ${clipboard ? 'theme-hover' : 'opacity-40'}`} title="Paste (Ctrl+V)">
                         <ClipboardPaste size={14}/>
                     </button>
                     <button onClick={deleteClip} disabled={!selectedClipId}
-                            className={`p-1.5 rounded ${selectedClipId ? 'hover:bg-gray-700 text-red-400' : 'opacity-40'}`} title="Delete">
+                            className={`p-1.5 rounded ${selectedClipId ? 'theme-hover text-red-400' : 'opacity-40'}`} title="Delete">
                         <Trash2 size={14}/>
                     </button>
-                    <div className="w-px h-5 bg-gray-700 mx-1"/>
+                    <div className="w-px h-5 theme-bg-tertiary mx-1"/>
                     <button onClick={splitClipAtPlayhead} disabled={!selectedClipId}
-                            className={`p-1.5 rounded ${selectedClipId ? 'hover:bg-gray-700' : 'opacity-40'}`} title="Split at Playhead (S)">
+                            className={`p-1.5 rounded ${selectedClipId ? 'theme-hover' : 'opacity-40'}`} title="Split at Playhead (S)">
                         <Scissors size={14} className="rotate-90"/>
                     </button>
 
                     {/* Snap to grid */}
-                    <div className="w-px h-5 bg-gray-700 mx-1"/>
+                    <div className="w-px h-5 theme-bg-tertiary mx-1"/>
                     <button
                         onClick={() => setSnapToGrid(!snapToGrid)}
-                        className={`p-1.5 rounded flex items-center gap-1 ${snapToGrid ? 'bg-purple-600' : 'hover:bg-gray-700'}`}
+                        className={`p-1.5 rounded flex items-center gap-1 ${snapToGrid ? 'bg-purple-600' : 'theme-hover'}`}
                         title="Snap to Grid (G)"
                     >
                         <Magnet size={14}/>
@@ -2027,7 +2031,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                     <select
                         value={gridSize}
                         onChange={(e) => setGridSize(parseFloat(e.target.value) as any)}
-                        className="px-1.5 py-0.5 bg-gray-800 border border-gray-700 rounded text-xs"
+                        className="px-1.5 py-0.5 theme-bg-secondary border theme-border rounded text-xs"
                         disabled={!snapToGrid}
                     >
                         <option value={0.25}>1/4s</option>
@@ -2038,20 +2042,20 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                     </select>
 
                     {/* Zoom controls */}
-                    <div className="w-px h-5 bg-gray-700 mx-1"/>
-                    <button onClick={() => setEditorZoom(Math.max(0.25, editorZoom - 0.25))} className="p-1.5 hover:bg-gray-700 rounded">
+                    <div className="w-px h-5 theme-bg-tertiary mx-1"/>
+                    <button onClick={() => setEditorZoom(Math.max(0.25, editorZoom - 0.25))} className="p-1.5 theme-hover rounded">
                         <ZoomOut size={14}/>
                     </button>
-                    <span className="text-xs text-gray-400 w-10 text-center">{Math.round(editorZoom * 100)}%</span>
-                    <button onClick={() => setEditorZoom(Math.min(8, editorZoom + 0.25))} className="p-1.5 hover:bg-gray-700 rounded">
+                    <span className="text-xs theme-text-muted w-10 text-center">{Math.round(editorZoom * 100)}%</span>
+                    <button onClick={() => setEditorZoom(Math.min(8, editorZoom + 0.25))} className="p-1.5 theme-hover rounded">
                         <ZoomIn size={14}/>
                     </button>
 
                     {/* Effects */}
-                    <div className="w-px h-5 bg-gray-700 mx-1"/>
+                    <div className="w-px h-5 theme-bg-tertiary mx-1"/>
                     <button
                         onClick={() => setShowEffectsPanel(!showEffectsPanel)}
-                        className={`px-2 py-1 rounded text-xs flex items-center gap-1 ${showEffectsPanel ? 'bg-purple-600' : 'bg-gray-700 hover:bg-gray-600'}`}
+                        className={`px-2 py-1 rounded text-xs flex items-center gap-1 ${showEffectsPanel ? 'bg-purple-600' : 'theme-bg-tertiary theme-hover'}`}
                     >
                         <Sliders size={12}/> FX
                     </button>
@@ -2092,11 +2096,11 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                         {isRecording ? 'Recording...' : 'REC'}
                     </button>
 
-                    <div className="w-px h-5 bg-gray-700 mx-1"/>
+                    <div className="w-px h-5 theme-bg-tertiary mx-1"/>
 
                     {/* BPM */}
-                    <div className="flex items-center gap-1 bg-gray-900 rounded px-2 py-0.5">
-                        <span className="text-[10px] text-gray-500">BPM</span>
+                    <div className="flex items-center gap-1 theme-bg-primary rounded px-2 py-0.5">
+                        <span className="text-[10px] theme-text-muted">BPM</span>
                         <input
                             type="number"
                             value={projectBpm}
@@ -2105,7 +2109,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                         />
                         <button
                             onClick={() => setShowBpmGrid(!showBpmGrid)}
-                            className={`p-0.5 rounded ${showBpmGrid ? 'bg-purple-600' : 'hover:bg-gray-700'}`}
+                            className={`p-0.5 rounded ${showBpmGrid ? 'bg-purple-600' : 'theme-hover'}`}
                             title="Show beat grid"
                         >
                             <Grid size={10}/>
@@ -2123,12 +2127,12 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
 
                     {/* Waveform zoom */}
                     <div className="flex items-center gap-1">
-                        <span className="text-[10px] text-gray-500">Wave</span>
-                        <button onClick={() => setWaveformZoom(Math.max(0.5, waveformZoom - 0.25))} className="p-0.5 hover:bg-gray-700 rounded">
+                        <span className="text-[10px] theme-text-muted">Wave</span>
+                        <button onClick={() => setWaveformZoom(Math.max(0.5, waveformZoom - 0.25))} className="p-0.5 theme-hover rounded">
                             <ZoomOut size={10}/>
                         </button>
                         <span className="text-[10px] w-6 text-center">{Math.round(waveformZoom * 100)}%</span>
-                        <button onClick={() => setWaveformZoom(Math.min(3, waveformZoom + 0.25))} className="p-0.5 hover:bg-gray-700 rounded">
+                        <button onClick={() => setWaveformZoom(Math.min(3, waveformZoom + 0.25))} className="p-0.5 theme-hover rounded">
                             <ZoomIn size={10}/>
                         </button>
                     </div>
@@ -2136,26 +2140,26 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
 
                 {/* Effects Panel */}
                 {showEffectsPanel && (
-                    <div className="h-24 border-b theme-border bg-gray-850 p-2 flex gap-3 overflow-x-auto">
+                    <div className="h-24 border-b theme-border theme-bg-secondary p-2 flex gap-3 overflow-x-auto">
                         <div className="flex flex-col gap-0.5 min-w-[100px]">
-                            <span className="text-[10px] text-gray-500 uppercase">Master</span>
+                            <span className="text-[10px] theme-text-muted uppercase">Master</span>
                             <input type="range" min={0} max={2} step={0.01} value={masterVolume}
                                    onChange={(e) => setMasterVolume(parseFloat(e.target.value))} className="w-full h-1.5 accent-purple-500"/>
-                            <span className="text-[10px] text-gray-400 text-center">{Math.round(masterVolume * 100)}%</span>
+                            <span className="text-[10px] theme-text-muted text-center">{Math.round(masterVolume * 100)}%</span>
                         </div>
                         {['Reverb', 'Delay', 'Chorus'].map(fx => (
                             <div key={fx} className="flex flex-col gap-0.5 min-w-[80px]">
-                                <span className="text-[10px] text-gray-500 uppercase">{fx}</span>
+                                <span className="text-[10px] theme-text-muted uppercase">{fx}</span>
                                 <input type="range" min={0} max={1} step={0.01} defaultValue={0} className="w-full h-1.5 accent-purple-500"/>
-                                <span className="text-[10px] text-gray-400 text-center">0%</span>
+                                <span className="text-[10px] theme-text-muted text-center">0%</span>
                             </div>
                         ))}
-                        <div className="w-px bg-gray-700"/>
+                        <div className="w-px theme-bg-tertiary"/>
                         {['Low', 'Mid', 'High'].map(band => (
                             <div key={band} className="flex flex-col gap-0.5 min-w-[60px]">
-                                <span className="text-[10px] text-gray-500 uppercase">{band} EQ</span>
+                                <span className="text-[10px] theme-text-muted uppercase">{band} EQ</span>
                                 <input type="range" min={-12} max={12} step={0.5} defaultValue={0} className="w-full h-1.5 accent-blue-500"/>
-                                <span className="text-[10px] text-gray-400 text-center">0dB</span>
+                                <span className="text-[10px] theme-text-muted text-center">0dB</span>
                             </div>
                         ))}
                     </div>
@@ -2164,10 +2168,10 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                 {/* Main editor area */}
                 <div className="flex-1 flex overflow-hidden" ref={editorContainerRef}>
                     {/* Track headers */}
-                    <div className="w-52 border-r border-gray-700 flex flex-col bg-gray-850 flex-shrink-0">
+                    <div className="w-52 border-r theme-border flex flex-col theme-bg-secondary flex-shrink-0">
                         {/* Timeline header corner */}
-                        <div className="h-6 border-b border-gray-700 flex items-center px-2 bg-gray-900">
-                            <span className="text-[10px] text-gray-500 uppercase">Tracks</span>
+                        <div className="h-6 border-b theme-border flex items-center px-2 theme-bg-primary">
+                            <span className="text-[10px] theme-text-muted uppercase">Tracks</span>
                         </div>
 
                         {/* Track headers */}
@@ -2178,13 +2182,13 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                 return (
                                     <div
                                         key={track.id}
-                                        className={`h-20 border-b border-gray-700 p-1.5 flex flex-col ${
+                                        className={`h-20 border-b theme-border p-1.5 flex flex-col ${
                                             track.muted ? 'opacity-60' : ''
-                                        } ${isLocked ? 'bg-gray-800/50' : ''}`}
+                                        } ${isLocked ? 'theme-bg-secondary' : ''}`}
                                     >
                                         {/* Track name row */}
                                         <div className="flex items-center gap-1 mb-1">
-                                            <span className="text-[10px] text-gray-500 w-4">{trackIdx + 1}</span>
+                                            <span className="text-[10px] theme-text-muted w-4">{trackIdx + 1}</span>
                                             <input
                                                 type="text"
                                                 value={track.name}
@@ -2192,7 +2196,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                                     t.id === track.id ? {...t, name: e.target.value} : t
                                                 ))}
                                                 disabled={isLocked}
-                                                className="flex-1 bg-transparent text-xs font-medium border-b border-transparent hover:border-gray-600 focus:border-purple-500 outline-none"
+                                                className="flex-1 bg-transparent text-xs font-medium theme-text-primary border-b border-transparent hover:border-current focus:border-purple-500 outline-none"
                                             />
                                             <button
                                                 onClick={() => setLockedTracks(prev => {
@@ -2201,7 +2205,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                                     else next.add(track.id);
                                                     return next;
                                                 })}
-                                                className={`p-0.5 rounded ${isLocked ? 'text-yellow-500' : 'text-gray-600 hover:text-gray-400'}`}
+                                                className={`p-0.5 rounded ${isLocked ? 'text-yellow-500' : 'theme-text-muted'}`}
                                             >
                                                 {isLocked ? <Lock size={10}/> : <Unlock size={10}/>}
                                             </button>
@@ -2217,7 +2221,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                                     return next;
                                                 })}
                                                 className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
-                                                    isArmed ? 'bg-red-600 text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+                                                    isArmed ? 'bg-red-600 text-white' : 'theme-bg-tertiary theme-text-muted theme-hover'
                                                 }`}
                                                 title="Arm for recording"
                                             >
@@ -2229,7 +2233,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                                 ))}
                                                 disabled={isLocked}
                                                 className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold ${
-                                                    track.muted ? 'bg-red-600 text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+                                                    track.muted ? 'bg-red-600 text-white' : 'theme-bg-tertiary theme-text-muted theme-hover'
                                                 }`}
                                                 title="Mute"
                                             >
@@ -2241,7 +2245,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                                 ))}
                                                 disabled={isLocked}
                                                 className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold ${
-                                                    track.solo ? 'bg-yellow-500 text-black' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+                                                    track.solo ? 'bg-yellow-500 text-black' : 'theme-bg-tertiary theme-text-muted theme-hover'
                                                 }`}
                                                 title="Solo"
                                             >
@@ -2258,7 +2262,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
 
                                         {/* Volume slider row */}
                                         <div className="flex items-center gap-1 mt-auto">
-                                            <Volume2 size={10} className="text-gray-500"/>
+                                            <Volume2 size={10} className="theme-text-muted"/>
                                             <input
                                                 type="range"
                                                 min={0}
@@ -2271,7 +2275,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                                 disabled={isLocked}
                                                 className="flex-1 h-1 accent-purple-500"
                                             />
-                                            <span className="text-[9px] text-gray-500 w-7 text-right">
+                                            <span className="text-[9px] theme-text-muted w-7 text-right">
                                                 {track.volume <= 1 ? Math.round(track.volume * 100) : `+${Math.round((track.volume - 1) * 100)}`}%
                                             </span>
                                         </div>
@@ -2290,7 +2294,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                     color: prev.length % TRACK_COLORS.length,
                                     height: 80
                                 }])}
-                                className="h-8 flex items-center justify-center text-xs text-gray-500 hover:bg-gray-700/50 gap-1"
+                                className="h-8 flex items-center justify-center text-xs theme-text-muted theme-hover gap-1"
                             >
                                 <Plus size={12}/> Add Track
                             </button>
@@ -2301,7 +2305,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                     <div className="flex-1 flex flex-col overflow-hidden">
                         {/* Timeline ruler */}
                         <div
-                            className="h-6 border-b border-gray-700 bg-gray-900 overflow-x-auto overflow-y-hidden flex-shrink-0"
+                            className="h-6 border-b theme-border theme-bg-primary overflow-x-auto overflow-y-hidden flex-shrink-0"
                             style={{ scrollbarWidth: 'none' }}
                             onScroll={(e) => {
                                 // Sync scrolling with tracks
@@ -2317,8 +2321,8 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                         className="absolute top-0 h-full flex flex-col items-center"
                                         style={{ left: `${t * pixelsPerSecond}px` }}
                                     >
-                                        <span className="text-[9px] text-gray-400 font-mono">{formatTime(t)}</span>
-                                        <div className="flex-1 w-px bg-gray-700"/>
+                                        <span className="text-[9px] theme-text-muted font-mono">{formatTime(t)}</span>
+                                        <div className="flex-1 w-px theme-bg-tertiary"/>
                                     </div>
                                 ))}
                                 {/* Sub-markers for finer grid */}
@@ -2328,7 +2332,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                         subMarkers.push(
                                             <div
                                                 key={`sub-${st}`}
-                                                className="absolute bottom-0 w-px h-2 bg-gray-800"
+                                                className="absolute bottom-0 w-px h-2 theme-bg-secondary"
                                                 style={{ left: `${st * pixelsPerSecond}px` }}
                                             />
                                         );
@@ -2357,7 +2361,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
 
                         {/* Tracks content */}
                         <div
-                            className="flex-1 overflow-auto bg-gray-900"
+                            className="flex-1 overflow-auto theme-bg-primary"
                             onScroll={(e) => {
                                 // Sync horizontal scroll with ruler
                                 const ruler = e.currentTarget.previousElementSibling;
@@ -2370,7 +2374,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                     return (
                                         <div
                                             key={track.id}
-                                            className={`h-20 border-b border-gray-800 relative ${
+                                            className={`h-20 border-b theme-border relative ${
                                                 track.muted ? 'opacity-50' : ''
                                             }`}
                                             onDragOver={(e) => !isLocked && e.preventDefault()}
@@ -2414,13 +2418,13 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                             {markers.map(t => (
                                                 <div
                                                     key={t}
-                                                    className="absolute top-0 bottom-0 w-px bg-gray-800"
+                                                    className="absolute top-0 bottom-0 w-px theme-bg-secondary"
                                                     style={{ left: `${t * pixelsPerSecond}px` }}
                                                 />
                                             ))}
 
                                             {/* Center line */}
-                                            <div className="absolute inset-x-0 top-1/2 h-px bg-gray-700 pointer-events-none"/>
+                                            <div className="absolute inset-x-0 top-1/2 h-px theme-bg-tertiary pointer-events-none"/>
 
                                             {/* Clips */}
                                             {track.clips.map(clip => {
@@ -2627,7 +2631,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                 </div>
 
                 {/* Transport bar */}
-                <div className="h-14 border-t border-gray-700 bg-gradient-to-t from-gray-900 to-gray-850 flex items-center px-4 gap-3">
+                <div className="h-14 border-t theme-border theme-bg-secondary flex items-center px-4 gap-3">
                     {/* Time display */}
                     <div className="bg-black rounded px-3 py-1.5 font-mono text-lg text-green-400 tracking-wider w-32 text-center">
                         {formatTimeMs(editorPlayhead)}
@@ -2637,21 +2641,21 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                     <div className="flex items-center gap-1">
                         <button
                             onClick={() => { setEditorPlayhead(0); stopEditorTimeline(); }}
-                            className="p-2 hover:bg-gray-700 rounded"
+                            className="p-2 theme-hover rounded"
                             title="Go to Start (Home)"
                         >
                             <SkipBack size={18}/>
                         </button>
                         <button
                             onClick={() => setEditorPlayhead(prev => Math.max(0, prev - 5))}
-                            className="p-2 hover:bg-gray-700 rounded"
+                            className="p-2 theme-hover rounded"
                             title="Rewind 5s"
                         >
                             <Rewind size={18}/>
                         </button>
                         <button
                             onClick={() => { stopEditorTimeline(); }}
-                            className={`p-2.5 rounded ${isEditorPlaying ? 'bg-gray-600' : 'hover:bg-gray-700'}`}
+                            className={`p-2.5 rounded ${isEditorPlaying ? 'theme-bg-tertiary' : 'theme-hover'}`}
                             title="Stop"
                         >
                             <Square size={18} fill={isEditorPlaying ? 'currentColor' : 'none'}/>
@@ -2665,7 +2669,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                         </button>
                         <button
                             onClick={() => setEditorPlayhead(prev => prev + 5)}
-                            className="p-2 hover:bg-gray-700 rounded"
+                            className="p-2 theme-hover rounded"
                             title="Forward 5s"
                         >
                             <FastForward size={18}/>
@@ -2675,7 +2679,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                 const maxTime = Math.max(...tracks.flatMap(t => t.clips.map(c => c.startTime + c.duration)), 0);
                                 setEditorPlayhead(maxTime);
                             }}
-                            className="p-2 hover:bg-gray-700 rounded"
+                            className="p-2 theme-hover rounded"
                             title="Go to End (End)"
                         >
                             <SkipForward size={18}/>
@@ -2683,10 +2687,10 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                     </div>
 
                     {/* Loop controls */}
-                    <div className="w-px h-8 bg-gray-700 mx-2"/>
+                    <div className="w-px h-8 theme-bg-tertiary mx-2"/>
                     <button
                         onClick={() => setLoopEnabled(!loopEnabled)}
-                        className={`p-2 rounded ${loopEnabled ? 'bg-blue-600' : 'hover:bg-gray-700'}`}
+                        className={`p-2 rounded ${loopEnabled ? 'bg-blue-600' : 'theme-hover'}`}
                         title="Loop"
                     >
                         <Repeat size={16}/>
@@ -2694,14 +2698,14 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
 
                     {/* Duration display */}
                     <div className="flex-1 flex items-center justify-center">
-                        <span className="text-xs text-gray-500">
+                        <span className="text-xs theme-text-muted">
                             Duration: {formatTime(Math.max(...tracks.flatMap(t => t.clips.map(c => c.startTime + c.duration)), 0))}
                         </span>
                     </div>
 
                     {/* Master volume */}
                     <div className="flex items-center gap-2">
-                        <Volume2 size={14} className="text-gray-400"/>
+                        <Volume2 size={14} className="theme-text-muted"/>
                         <input
                             type="range"
                             min={0}
@@ -2711,11 +2715,11 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                             onChange={(e) => setMasterVolume(parseFloat(e.target.value))}
                             className="w-20 h-1.5 accent-purple-500"
                         />
-                        <span className="text-xs text-gray-400 w-8">{Math.round(masterVolume * 100)}%</span>
+                        <span className="text-xs theme-text-muted w-8">{Math.round(masterVolume * 100)}%</span>
                     </div>
 
                     {/* Export */}
-                    <div className="w-px h-8 bg-gray-700 mx-2"/>
+                    <div className="w-px h-8 theme-bg-tertiary mx-2"/>
                     <button
                         onClick={exportTimeline}
                         className="px-3 py-1.5 bg-green-600 hover:bg-green-700 rounded text-sm flex items-center gap-2 font-medium"
@@ -2728,53 +2732,53 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                 {/* Context Menu for clips */}
                 {contextMenu && (
                     <div
-                        className="fixed bg-gray-800 border border-gray-600 rounded-lg shadow-xl py-1 z-50 min-w-[180px]"
+                        className="fixed theme-bg-secondary border theme-border rounded-lg shadow-xl py-1 z-50 min-w-[180px]"
                         style={{ left: contextMenu.x, top: contextMenu.y }}
                         onClick={(e) => e.stopPropagation()}
                     >
                         {contextMenu.clipId && (
                             <>
-                                <div className="px-3 py-1 text-[10px] text-gray-500 uppercase">Clip Actions</div>
+                                <div className="px-3 py-1 text-[10px] theme-text-muted uppercase">Clip Actions</div>
                                 <button
                                     onClick={() => duplicateClip(contextMenu.clipId!)}
-                                    className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-700 flex items-center gap-2"
+                                    className="w-full px-3 py-1.5 text-left text-sm theme-hover flex items-center gap-2"
                                 >
                                     <Copy size={12}/> Duplicate
                                 </button>
                                 <button
                                     onClick={() => { cutClip(); setContextMenu(null); }}
-                                    className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-700 flex items-center gap-2"
+                                    className="w-full px-3 py-1.5 text-left text-sm theme-hover flex items-center gap-2"
                                 >
                                     <Scissors size={12}/> Cut
                                 </button>
                                 <button
                                     onClick={() => { deleteClip(); setContextMenu(null); }}
-                                    className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-700 flex items-center gap-2 text-red-400"
+                                    className="w-full px-3 py-1.5 text-left text-sm theme-hover flex items-center gap-2 text-red-400"
                                 >
                                     <Trash2 size={12}/> Delete
                                 </button>
-                                <div className="border-t border-gray-700 my-1"/>
-                                <div className="px-3 py-1 text-[10px] text-gray-500 uppercase">Processing</div>
+                                <div className="border-t theme-border my-1"/>
+                                <div className="px-3 py-1 text-[10px] theme-text-muted uppercase">Processing</div>
                                 <button
                                     onClick={() => normalizeClip(contextMenu.clipId!)}
-                                    className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-700 flex items-center gap-2"
+                                    className="w-full px-3 py-1.5 text-left text-sm theme-hover flex items-center gap-2"
                                 >
                                     <BarChart3 size={12}/> Normalize
                                 </button>
                                 <button
                                     onClick={() => addFadeToClip(contextMenu.clipId!, 'in', 0.5)}
-                                    className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-700 flex items-center gap-2"
+                                    className="w-full px-3 py-1.5 text-left text-sm theme-hover flex items-center gap-2"
                                 >
                                     <ChevronRight size={12} className="rotate-180"/> Add Fade In
                                 </button>
                                 <button
                                     onClick={() => addFadeToClip(contextMenu.clipId!, 'out', 0.5)}
-                                    className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-700 flex items-center gap-2"
+                                    className="w-full px-3 py-1.5 text-left text-sm theme-hover flex items-center gap-2"
                                 >
                                     <ChevronRight size={12}/> Add Fade Out
                                 </button>
-                                <div className="border-t border-gray-700 my-1"/>
-                                <div className="px-3 py-1 text-[10px] text-gray-500 uppercase">Gain</div>
+                                <div className="border-t theme-border my-1"/>
+                                <div className="px-3 py-1 text-[10px] theme-text-muted uppercase">Gain</div>
                                 <div className="px-3 py-1.5 flex items-center gap-2">
                                     <input
                                         type="range"
@@ -2787,14 +2791,14 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                     />
                                     <span className="text-xs w-10">Gain</span>
                                 </div>
-                                <div className="border-t border-gray-700 my-1"/>
-                                <div className="px-3 py-1 text-[10px] text-gray-500 uppercase">Color</div>
+                                <div className="border-t theme-border my-1"/>
+                                <div className="px-3 py-1 text-[10px] theme-text-muted uppercase">Color</div>
                                 <div className="px-3 py-1.5 flex gap-1 flex-wrap">
                                     {TRACK_COLORS.map((color, i) => (
                                         <button
                                             key={i}
                                             onClick={() => setClipColor(contextMenu.clipId!, i)}
-                                            className={`w-5 h-5 rounded-full bg-gradient-to-b ${color.bg} border border-gray-600 hover:scale-110 transition-transform`}
+                                            className={`w-5 h-5 rounded-full bg-gradient-to-b ${color.bg} border theme-border hover:scale-110 transition-transform`}
                                         />
                                     ))}
                                 </div>
@@ -2814,7 +2818,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                 onClick={() => setEditorPlayhead(marker.time)}
                             >
                                 <div className="w-0 h-0 border-l-[6px] border-r-[6px] border-t-[8px] border-l-transparent border-r-transparent" style={{ borderTopColor: marker.color }}/>
-                                <span className="text-[9px] bg-gray-900/80 px-1 rounded whitespace-nowrap">{marker.name}</span>
+                                <span className="text-[9px] theme-bg-primary px-1 rounded whitespace-nowrap">{marker.name}</span>
                             </div>
                         ))}
                     </div>
@@ -2900,19 +2904,19 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
             };
 
             return (
-                <div className="flex-1 flex flex-col bg-gradient-to-b from-gray-900 to-gray-950 min-w-0">
+                <div className="flex-1 flex flex-col theme-bg-primary min-w-0">
                     {/* Deck header */}
-                    <div className={`h-8 flex items-center justify-between px-3 ${isLeft ? 'bg-blue-900/40' : 'bg-orange-900/40'} border-b border-gray-800`}>
+                    <div className={`h-8 flex items-center justify-between px-3 ${isLeft ? 'bg-blue-900/40' : 'bg-orange-900/40'} border-b theme-border`}>
                         <div className="flex items-center gap-2">
                             <span className={`text-lg font-bold ${accentClass}`}>{label}</span>
-                            <span className="text-[10px] text-gray-500 uppercase">Deck</span>
+                            <span className="text-[10px] theme-text-muted uppercase">Deck</span>
                         </div>
-                        <span className="text-xs text-gray-400 truncate max-w-[150px]">{deck.audioFile?.name || 'No Track'}</span>
+                        <span className="text-xs theme-text-muted truncate max-w-[150px]">{deck.audioFile?.name || 'No Track'}</span>
                     </div>
 
                     {/* Overview waveform - full track view */}
                     <div
-                        className="h-8 bg-black/50 border-b border-gray-800 relative cursor-pointer"
+                        className="h-8 bg-black/50 border-b theme-border relative cursor-pointer"
                         onClick={(e) => {
                             if (!deck.audioFile?.duration) return;
                             const rect = e.currentTarget.getBoundingClientRect();
@@ -2975,7 +2979,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                     </div>
 
                     {/* Scrolling waveform - centered on playhead */}
-                    <div className="h-20 bg-black border-b border-gray-800 relative overflow-hidden">
+                    <div className="h-20 bg-black border-b theme-border relative overflow-hidden">
                         {hiResWaveform && deck.audioFile?.duration ? (
                             <div className="absolute inset-0">
                                 <svg className="w-full h-full" preserveAspectRatio="none">
@@ -3096,7 +3100,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                 </svg>
                             </div>
                         ) : (
-                            <div className="flex items-center justify-center h-full text-gray-600 text-sm">
+                            <div className="flex items-center justify-center h-full theme-text-muted text-sm">
                                 {deck.audioFile ? 'Loading...' : 'Load a track'}
                             </div>
                         )}
@@ -3111,37 +3115,37 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                     </div>
 
                     {/* BPM / Key / Pitch / Controls display */}
-                    <div className="h-8 flex items-center justify-between px-2 bg-gray-900/80 border-b border-gray-800">
+                    <div className="h-8 flex items-center justify-between px-2 theme-bg-primary border-b theme-border">
                         <div className="flex items-center gap-2">
                             {/* Nudge buttons */}
                             <button
                                 onClick={() => nudgeDeck(deck, setDeck, audioRef, -0.02)}
-                                className="px-1.5 py-0.5 bg-gray-800 hover:bg-gray-700 rounded text-[9px] font-bold"
+                                className="px-1.5 py-0.5 theme-bg-secondary theme-hover rounded text-[9px] font-bold"
                                 title="Nudge backward"
                             >-</button>
                             <div className="flex items-center gap-1">
                                 <span className="text-base font-bold font-mono text-white">{deck.audioFile?.bpm || '---'}</span>
-                                <span className="text-[8px] text-gray-500">BPM</span>
+                                <span className="text-[8px] theme-text-muted">BPM</span>
                             </div>
                             <button
                                 onClick={() => nudgeDeck(deck, setDeck, audioRef, 0.02)}
-                                className="px-1.5 py-0.5 bg-gray-800 hover:bg-gray-700 rounded text-[9px] font-bold"
+                                className="px-1.5 py-0.5 theme-bg-secondary theme-hover rounded text-[9px] font-bold"
                                 title="Nudge forward"
                             >+</button>
                         </div>
                         <div className="flex items-center gap-2">
-                            <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${deck.audioFile?.key ? (isLeft ? 'bg-blue-900/50 text-blue-300' : 'bg-orange-900/50 text-orange-300') : 'text-gray-500'}`}>
+                            <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${deck.audioFile?.key ? (isLeft ? 'bg-blue-900/50 text-blue-300' : 'bg-orange-900/50 text-orange-300') : 'theme-text-muted'}`}>
                                 {deck.audioFile?.key || '--'}
                             </span>
                             <button
                                 onClick={() => setDeck(prev => ({ ...prev, keyLock: !prev.keyLock }))}
-                                className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${deck.keyLock ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}
+                                className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${deck.keyLock ? 'bg-green-600 text-white' : 'theme-bg-secondary theme-text-muted theme-hover'}`}
                                 title="Key Lock"
                             >
                                 KEY
                             </button>
                         </div>
-                        <div className={`text-sm font-mono ${deck.speed !== 1 ? (deck.speed > 1 ? 'text-green-400' : 'text-red-400') : 'text-gray-400'}`}>
+                        <div className={`text-sm font-mono ${deck.speed !== 1 ? (deck.speed > 1 ? 'text-green-400' : 'text-red-400') : 'theme-text-muted'}`}>
                             {deck.speed > 1 ? '+' : ''}{((deck.speed - 1) * 100).toFixed(1)}%
                         </div>
                     </div>
@@ -3149,8 +3153,8 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                     {/* Main controls */}
                     <div className="flex-1 flex min-h-0">
                         {/* EQ Section */}
-                        <div className="w-20 border-r border-gray-800 p-1.5 flex flex-col">
-                            <div className="text-[9px] text-gray-500 text-center mb-1">EQ</div>
+                        <div className="w-20 border-r theme-border p-1.5 flex flex-col">
+                            <div className="text-[9px] theme-text-muted text-center mb-1">EQ</div>
                             {(['high', 'mid', 'low'] as const).map(band => (
                                 <div key={band} className="flex-1 flex items-center gap-0.5">
                                     <button
@@ -3159,7 +3163,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                             eqKill: { ...prev.eqKill, [band]: !prev.eqKill[band] }
                                         }))}
                                         className={`w-4 h-4 text-[8px] font-bold rounded ${
-                                            deck.eqKill[band] ? 'bg-red-600 text-white' : 'bg-gray-800 text-gray-500 hover:bg-gray-700'
+                                            deck.eqKill[band] ? 'bg-red-600 text-white' : 'theme-bg-secondary theme-text-muted theme-hover'
                                         }`}
                                     >
                                         {band[0].toUpperCase()}
@@ -3178,8 +3182,8 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                     />
                                 </div>
                             ))}
-                            <div className="border-t border-gray-700 mt-1 pt-1">
-                                <div className="text-[9px] text-gray-500 text-center">FILTER</div>
+                            <div className="border-t theme-border mt-1 pt-1">
+                                <div className="text-[9px] theme-text-muted text-center">FILTER</div>
                                 <input
                                     type="range"
                                     min={0}
@@ -3200,7 +3204,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                         if (audioRef.current) audioRef.current.currentTime = deck.hotCues[0] || 0;
                                         setDeck(prev => ({ ...prev, currentTime: prev.hotCues[0] || 0 }));
                                     }}
-                                    className="p-2 bg-gray-800 hover:bg-gray-700 rounded text-yellow-400"
+                                    className="p-2 theme-bg-secondary theme-hover rounded text-yellow-400"
                                     title="Cue"
                                 >
                                     <RotateCcw size={14}/>
@@ -3228,7 +3232,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                             if (audioRef.current) audioRef.current.playbackRate = newSpeed;
                                         }
                                     }}
-                                    className={`p-2 rounded ${deck.speed === 1 ? 'bg-gray-800 hover:bg-gray-700' : 'bg-purple-600'}`}
+                                    className={`p-2 rounded ${deck.speed === 1 ? 'theme-bg-secondary theme-hover' : 'bg-purple-600'}`}
                                     title="Sync BPM"
                                 >
                                     <Repeat size={14}/>
@@ -3237,7 +3241,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
 
                             {/* Hot Cues */}
                             <div>
-                                <div className="text-[9px] text-gray-500 text-center mb-1">HOT CUES</div>
+                                <div className="text-[9px] theme-text-muted text-center mb-1">HOT CUES</div>
                                 <div className="grid grid-cols-4 gap-1">
                                     {[0, 1, 2, 3, 4, 5, 6, 7].map(i => (
                                         <button
@@ -3247,7 +3251,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                             className={`h-6 rounded text-[10px] font-bold transition-colors ${
                                                 deck.hotCues[i] !== null
                                                     ? 'text-white shadow-lg'
-                                                    : 'bg-gray-800 hover:bg-gray-700 text-gray-500'
+                                                    : 'theme-bg-secondary theme-hover theme-text-muted'
                                             }`}
                                             style={deck.hotCues[i] !== null ? { backgroundColor: HOT_CUE_COLORS[i] } : {}}
                                             title={deck.hotCues[i] !== null ? `${formatTime(deck.hotCues[i]!)} (right-click to clear)` : 'Set cue'}
@@ -3260,12 +3264,12 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
 
                             {/* Loop controls */}
                             <div>
-                                <div className="text-[9px] text-gray-500 text-center mb-1">LOOP</div>
+                                <div className="text-[9px] theme-text-muted text-center mb-1">LOOP</div>
                                 <div className="flex gap-1 mb-1">
                                     <button
                                         onClick={() => setLoopPoint('in')}
                                         className={`flex-1 h-5 rounded text-[9px] font-bold ${
-                                            deck.loopIn !== null ? 'bg-green-600' : 'bg-gray-800 hover:bg-gray-700'
+                                            deck.loopIn !== null ? 'bg-green-600' : 'theme-bg-secondary theme-hover'
                                         }`}
                                     >
                                         IN
@@ -3273,7 +3277,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                     <button
                                         onClick={() => setLoopPoint('out')}
                                         className={`flex-1 h-5 rounded text-[9px] font-bold ${
-                                            deck.loopOut !== null ? 'bg-green-600' : 'bg-gray-800 hover:bg-gray-700'
+                                            deck.loopOut !== null ? 'bg-green-600' : 'theme-bg-secondary theme-hover'
                                         }`}
                                     >
                                         OUT
@@ -3282,14 +3286,14 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                         onClick={() => setDeck(prev => ({ ...prev, loopActive: !prev.loopActive }))}
                                         disabled={deck.loopIn === null || deck.loopOut === null}
                                         className={`flex-1 h-5 rounded text-[9px] font-bold ${
-                                            deck.loopActive ? 'bg-green-500 animate-pulse' : 'bg-gray-800 hover:bg-gray-700'
+                                            deck.loopActive ? 'bg-green-500 animate-pulse' : 'theme-bg-secondary theme-hover'
                                         } disabled:opacity-40`}
                                     >
                                         {deck.loopActive ? 'ON' : 'OFF'}
                                     </button>
                                     <button
                                         onClick={() => setDeck(prev => ({ ...prev, loopIn: null, loopOut: null, loopActive: false }))}
-                                        className="flex-1 h-5 rounded text-[9px] font-bold bg-gray-800 hover:bg-red-600"
+                                        className="flex-1 h-5 rounded text-[9px] font-bold theme-bg-secondary hover:bg-red-600"
                                     >
                                         CLR
                                     </button>
@@ -3299,7 +3303,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                         <button
                                             key={size}
                                             onClick={() => setAutoLoop(size)}
-                                            className="h-5 rounded text-[9px] bg-gray-800 hover:bg-purple-600"
+                                            className="h-5 rounded text-[9px] theme-bg-secondary hover:bg-purple-600"
                                         >
                                             {size >= 1 ? size : `1/${1/size}`}
                                         </button>
@@ -3309,8 +3313,8 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                         </div>
 
                         {/* Pitch/Tempo fader */}
-                        <div className="w-16 border-l border-gray-800 p-1.5 flex flex-col items-center">
-                            <div className="text-[9px] text-gray-500 mb-1">TEMPO</div>
+                        <div className="w-16 border-l theme-border p-1.5 flex flex-col items-center">
+                            <div className="text-[9px] theme-text-muted mb-1">TEMPO</div>
                             <div className="flex-1 flex flex-col items-center justify-center">
                                 <input
                                     type="range"
@@ -3332,14 +3336,14 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                     setDeck(prev => ({ ...prev, speed: 1 }));
                                     if (audioRef.current) audioRef.current.playbackRate = 1;
                                 }}
-                                className="mt-1 w-full py-0.5 text-[9px] bg-gray-800 hover:bg-gray-700 rounded"
+                                className="mt-1 w-full py-0.5 text-[9px] theme-bg-secondary theme-hover rounded"
                             >
                                 0%
                             </button>
 
                             {/* Volume */}
-                            <div className="border-t border-gray-700 mt-2 pt-2 w-full flex flex-col items-center">
-                                <div className="text-[9px] text-gray-500 mb-1">VOL</div>
+                            <div className="border-t theme-border mt-2 pt-2 w-full flex flex-col items-center">
+                                <div className="text-[9px] theme-text-muted mb-1">VOL</div>
                                 <input
                                     type="range"
                                     min={0}
@@ -3361,7 +3365,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                     </div>
 
                     {/* Load track bar */}
-                    <div className="h-8 border-t border-gray-800 flex items-center px-2 gap-2">
+                    <div className="h-8 border-t theme-border flex items-center px-2 gap-2">
                         <button
                             onClick={() => {
                                 if (selectedAudio) {
@@ -3378,14 +3382,14 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                             }}
                             disabled={!selectedAudio}
                             className={`flex-1 py-1 rounded text-xs font-medium truncate ${
-                                selectedAudio ? `${bgAccent} ${bgAccentHover}` : 'bg-gray-800 text-gray-600'
+                                selectedAudio ? `${bgAccent} ${bgAccentHover}` : 'theme-bg-secondary theme-text-muted'
                             }`}
                         >
                             {selectedAudio ? `Load: ${selectedAudio.name}` : 'Select track from library'}
                         </button>
                         <button
                             onClick={() => setDeck(prev => ({ ...defaultDeckState, volume: prev.volume }))}
-                            className="p-1.5 bg-gray-800 hover:bg-red-600 rounded"
+                            className="p-1.5 theme-bg-secondary hover:bg-red-600 rounded"
                             title="Eject"
                         >
                             <X size={12}/>
@@ -3438,16 +3442,16 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
         };
 
         return (
-            <div className="flex-1 flex flex-col overflow-hidden bg-gray-950">
+            <div className="flex-1 flex flex-col overflow-hidden theme-bg-primary">
                 {/* Top bar with effects */}
-                <div className="h-10 border-b border-gray-800 flex items-center px-4 gap-4 bg-gray-900/50">
+                <div className="h-10 border-b theme-border flex items-center px-4 gap-4 theme-bg-primary">
                     <div className="flex items-center gap-2">
                         <Disc3 className="text-purple-400" size={18}/>
                         <span className="text-sm font-bold text-purple-400">DJ MIXER</span>
                     </div>
                     <div className="flex-1"/>
                     <div className="flex items-center gap-3">
-                        <span className="text-xs text-gray-500">MASTER</span>
+                        <span className="text-xs theme-text-muted">MASTER</span>
                         <input
                             type="range"
                             min={0}
@@ -3457,7 +3461,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                             onChange={(e) => setDjMasterGain(parseFloat(e.target.value))}
                             className="w-24 h-1.5 accent-purple-500"
                         />
-                        <span className="text-xs text-gray-400 w-8">{Math.round(djMasterGain * 100)}%</span>
+                        <span className="text-xs theme-text-muted w-8">{Math.round(djMasterGain * 100)}%</span>
                     </div>
                 </div>
 
@@ -3466,14 +3470,14 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                     {renderDeck(deckA, setDeckA, 'A', deckARef, true)}
 
                     {/* Center mixer */}
-                    <div className="w-36 bg-gray-900 border-x border-gray-800 flex flex-col">
+                    <div className="w-36 theme-bg-primary border-x theme-border flex flex-col">
                         {/* VU Meters */}
-                        <div className="h-32 p-2 border-b border-gray-800">
-                            <div className="text-[9px] text-gray-500 text-center mb-1">LEVEL</div>
+                        <div className="h-32 p-2 border-b theme-border">
+                            <div className="text-[9px] theme-text-muted text-center mb-1">LEVEL</div>
                             <div className="flex justify-center gap-3 h-full pb-2">
                                 {/* Deck A meter */}
                                 <div className="flex gap-0.5">
-                                    <div className="w-2 h-full bg-gray-800 rounded-sm relative overflow-hidden">
+                                    <div className="w-2 h-full theme-bg-secondary rounded-sm relative overflow-hidden">
                                         <div
                                             className="absolute bottom-0 w-full rounded-sm"
                                             style={{
@@ -3482,7 +3486,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                             }}
                                         />
                                     </div>
-                                    <div className="w-2 h-full bg-gray-800 rounded-sm relative overflow-hidden">
+                                    <div className="w-2 h-full theme-bg-secondary rounded-sm relative overflow-hidden">
                                         <div
                                             className="absolute bottom-0 w-full rounded-sm"
                                             style={{
@@ -3494,7 +3498,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                 </div>
                                 {/* Master */}
                                 <div className="flex gap-0.5">
-                                    <div className="w-2 h-full bg-gray-800 rounded-sm relative overflow-hidden">
+                                    <div className="w-2 h-full theme-bg-secondary rounded-sm relative overflow-hidden">
                                         <div
                                             className="absolute bottom-0 w-full rounded-sm"
                                             style={{
@@ -3503,7 +3507,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                             }}
                                         />
                                     </div>
-                                    <div className="w-2 h-full bg-gray-800 rounded-sm relative overflow-hidden">
+                                    <div className="w-2 h-full theme-bg-secondary rounded-sm relative overflow-hidden">
                                         <div
                                             className="absolute bottom-0 w-full rounded-sm"
                                             style={{
@@ -3515,7 +3519,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                 </div>
                                 {/* Deck B meter */}
                                 <div className="flex gap-0.5">
-                                    <div className="w-2 h-full bg-gray-800 rounded-sm relative overflow-hidden">
+                                    <div className="w-2 h-full theme-bg-secondary rounded-sm relative overflow-hidden">
                                         <div
                                             className="absolute bottom-0 w-full rounded-sm"
                                             style={{
@@ -3524,7 +3528,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                             }}
                                         />
                                     </div>
-                                    <div className="w-2 h-full bg-gray-800 rounded-sm relative overflow-hidden">
+                                    <div className="w-2 h-full theme-bg-secondary rounded-sm relative overflow-hidden">
                                         <div
                                             className="absolute bottom-0 w-full rounded-sm"
                                             style={{
@@ -3535,7 +3539,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                     </div>
                                 </div>
                             </div>
-                            <div className="flex justify-between text-[8px] text-gray-600">
+                            <div className="flex justify-between text-[8px] theme-text-muted">
                                 <span className="text-blue-400">A</span>
                                 <span>M</span>
                                 <span className="text-orange-400">B</span>
@@ -3544,7 +3548,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
 
                         {/* Crossfader */}
                         <div className="flex-1 flex flex-col items-center justify-center p-3">
-                            <div className="text-[9px] text-gray-500 mb-2">CROSSFADER</div>
+                            <div className="text-[9px] theme-text-muted mb-2">CROSSFADER</div>
                             <input
                                 type="range"
                                 min={0}
@@ -3580,7 +3584,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
 
                             {/* Effects with sliders */}
                             <div className="mt-3 w-full">
-                                <div className="text-[9px] text-gray-500 text-center mb-1">MASTER FX</div>
+                                <div className="text-[9px] theme-text-muted text-center mb-1">MASTER FX</div>
                                 <div className="space-y-1">
                                     {[
                                         { name: 'Echo', key: 'echo', color: 'accent-cyan-500' },
@@ -3603,7 +3607,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                                 className={`w-5 h-4 text-[7px] font-bold rounded transition-colors ${
                                                     (deckAEffects[fx.key] || 0) > 0 || (deckBEffects[fx.key] || 0) > 0
                                                         ? 'bg-purple-600 text-white'
-                                                        : 'bg-gray-800 text-gray-500 hover:bg-gray-700'
+                                                        : 'theme-bg-secondary theme-text-muted theme-hover'
                                                 }`}
                                             >
                                                 {fx.name[0]}
@@ -3632,7 +3636,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                         key={curve}
                                         onClick={() => setCrossfaderCurve(curve)}
                                         className={`flex-1 py-0.5 text-[8px] rounded ${
-                                            crossfaderCurve === curve ? 'bg-purple-600' : 'bg-gray-800 hover:bg-gray-700'
+                                            crossfaderCurve === curve ? 'bg-purple-600' : 'theme-bg-secondary theme-hover'
                                         }`}
                                     >
                                         {curve}
@@ -3684,7 +3688,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
         return (
             <div className="flex-1 flex flex-col overflow-hidden">
                 {/* Mode selector */}
-                <div className="h-12 border-b theme-border flex items-center px-4 gap-2 bg-gray-800/50">
+                <div className="h-12 border-b theme-border flex items-center px-4 gap-2 theme-bg-secondary">
                     {(['waveform', 'spectrum', 'spectrogram'] as const).map(mode => (
                         <button
                             key={mode}
@@ -3692,7 +3696,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                             className={`px-3 py-1.5 rounded text-sm capitalize ${
                                 analysisMode === mode
                                     ? 'bg-purple-600 text-white'
-                                    : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+                                    : 'theme-bg-tertiary theme-hover theme-text-secondary'
                             }`}
                         >
                             {mode}
@@ -3702,7 +3706,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                     {selectedAudio && (
                         <button
                             onClick={() => analyzeAudio(selectedAudio.path)}
-                            className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-sm flex items-center gap-1"
+                            className="px-3 py-1.5 theme-bg-tertiary theme-hover rounded text-sm flex items-center gap-1"
                         >
                             <RefreshCw size={14}/> Refresh
                         </button>
@@ -3711,7 +3715,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
 
                 {/* Visualization */}
                 <div className="flex-1 p-4">
-                    <div className="w-full h-full bg-gray-900 rounded-lg flex items-center justify-center overflow-hidden">
+                    <div className="w-full h-full theme-bg-primary rounded-lg flex items-center justify-center overflow-hidden">
                         {selectedAudio ? (
                             <div className="w-full h-full p-4 flex flex-col">
                                 {analysisMode === 'waveform' && (
@@ -3788,8 +3792,8 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                             </div>
                         ) : (
                             <div className="text-center">
-                                <Activity size={64} className="mx-auto text-gray-600 mb-4"/>
-                                <p className="text-gray-400">Select an audio file to analyze</p>
+                                <Activity size={64} className="mx-auto theme-text-muted mb-4"/>
+                                <p className="theme-text-muted">Select an audio file to analyze</p>
                             </div>
                         )}
                     </div>
@@ -3797,26 +3801,26 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
 
                 {/* Info panel */}
                 {selectedAudio && (
-                    <div className="h-32 border-t theme-border p-4 bg-gray-800/50">
+                    <div className="h-32 border-t theme-border p-4 theme-bg-secondary">
                         <div className="grid grid-cols-5 gap-4">
                             <div>
-                                <p className="text-xs text-gray-400">Duration</p>
+                                <p className="text-xs theme-text-muted">Duration</p>
                                 <p className="text-lg font-mono">{formatTime(analysisAudioBuffer?.duration || selectedAudio.duration || 0)}</p>
                             </div>
                             <div>
-                                <p className="text-xs text-gray-400">Sample Rate</p>
+                                <p className="text-xs theme-text-muted">Sample Rate</p>
                                 <p className="text-lg font-mono">{analysisAudioBuffer ? `${(analysisAudioBuffer.sampleRate / 1000).toFixed(1)} kHz` : '---'}</p>
                             </div>
                             <div>
-                                <p className="text-xs text-gray-400">Channels</p>
+                                <p className="text-xs theme-text-muted">Channels</p>
                                 <p className="text-lg font-mono">{analysisAudioBuffer?.numberOfChannels || '---'}</p>
                             </div>
                             <div>
-                                <p className="text-xs text-gray-400">BPM (est.)</p>
+                                <p className="text-xs theme-text-muted">BPM (est.)</p>
                                 <p className="text-lg font-mono">{selectedAudio.bpm || '---'}</p>
                             </div>
                             <div>
-                                <p className="text-xs text-gray-400">Key (est.)</p>
+                                <p className="text-xs theme-text-muted">Key (est.)</p>
                                 <p className="text-lg font-mono">{selectedAudio.key || '---'}</p>
                             </div>
                         </div>
@@ -3836,17 +3840,17 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
 
         // Piano Roll View
         const renderPianoRoll = () => (
-            <div className="flex-1 flex overflow-hidden bg-gray-900">
+            <div className="flex-1 flex overflow-hidden theme-bg-primary">
                 {/* Piano keys sidebar */}
-                <div className="w-16 flex flex-col-reverse border-r border-gray-700 overflow-hidden">
+                <div className="w-16 flex flex-col-reverse border-r theme-border overflow-hidden">
                     {pianoKeys.slice(36, 72).map(note => {
                         const isBlack = [1, 3, 6, 8, 10].includes(note % 12);
                         return (
                             <div
                                 key={note}
                                 onClick={() => playNote(note)}
-                                className={`h-4 flex items-center justify-end pr-1 text-[8px] cursor-pointer border-b border-gray-800 ${
-                                    isBlack ? 'bg-gray-800 text-gray-400' : 'bg-gray-200 text-gray-600'
+                                className={`h-4 flex items-center justify-end pr-1 text-[8px] cursor-pointer border-b theme-border ${
+                                    isBlack ? 'theme-bg-secondary theme-text-muted' : 'bg-gray-200 theme-text-muted'
                                 } hover:bg-purple-500`}
                             >
                                 {note % 12 === 0 ? noteToName(note) : ''}
@@ -3862,7 +3866,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                         {pianoKeys.slice(36, 72).reverse().map((note, rowIdx) => (
                             <div
                                 key={note}
-                                className={`h-4 flex border-b border-gray-800 ${rowIdx % 12 === 0 ? 'bg-gray-700/30' : ''}`}
+                                className={`h-4 flex border-b theme-border ${rowIdx % 12 === 0 ? 'theme-bg-tertiary' : ''}`}
                                 onClick={(e) => {
                                     const rect = e.currentTarget.getBoundingClientRect();
                                     const x = (e.clientX - rect.left) / (40 * notationZoom);
@@ -3874,7 +3878,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                 {Array.from({ length: totalBeats }).map((_, beat) => (
                                     <div
                                         key={beat}
-                                        className={`border-r ${beat % beatsPerMeasure === 0 ? 'border-gray-600' : 'border-gray-800'}`}
+                                        className={`border-r ${beat % beatsPerMeasure === 0 ? 'theme-border' : 'theme-border'}`}
                                         style={{ width: `${40 * notationZoom}px` }}
                                     />
                                 ))}
@@ -4430,7 +4434,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                 <div className="flex-1 flex flex-col overflow-hidden bg-white">
                     {/* Sheet music controls */}
                     <div className="flex items-center gap-3 px-4 py-2 bg-gray-50 border-b border-gray-200 shrink-0">
-                        <span className="text-xs text-gray-500 font-medium">Key:</span>
+                        <span className="text-xs theme-text-muted font-medium">Key:</span>
                         <select
                             value={notationKeySignature}
                             onChange={(e) => setNotationKeySignature(e.target.value)}
@@ -4440,7 +4444,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                 <option key={k} value={k}>{k} major</option>
                             ))}
                         </select>
-                        <span className="text-xs text-gray-500 font-medium ml-2">Clef:</span>
+                        <span className="text-xs theme-text-muted font-medium ml-2">Clef:</span>
                         <select
                             value={notationClef}
                             onChange={(e) => setNotationClef(e.target.value as 'treble' | 'bass' | 'grand')}
@@ -4454,7 +4458,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                         <div className="w-px h-5 bg-gray-300 mx-1"/>
 
                         {/* Note duration selector */}
-                        <span className="text-xs text-gray-500 font-medium">Duration:</span>
+                        <span className="text-xs theme-text-muted font-medium">Duration:</span>
                         <div className="flex gap-0.5">
                             {durationOptions.map(d => (
                                 <button
@@ -4475,23 +4479,23 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                         <div className="w-px h-5 bg-gray-300 mx-1"/>
 
                         {/* Octave selector */}
-                        <span className="text-xs text-gray-500 font-medium">Oct:</span>
+                        <span className="text-xs theme-text-muted font-medium">Oct:</span>
                         <div className="flex items-center gap-1">
                             <button
                                 onClick={() => setInputOctave(o => Math.max(1, o - 1))}
-                                className="w-6 h-6 flex items-center justify-center rounded bg-white border border-gray-300 text-gray-600 hover:bg-gray-100 text-xs"
+                                className="w-6 h-6 flex items-center justify-center rounded bg-white border border-gray-300 theme-text-muted hover:bg-gray-100 text-xs"
                             >-</button>
                             <span className="text-sm font-medium text-gray-700 w-4 text-center">{inputOctave}</span>
                             <button
                                 onClick={() => setInputOctave(o => Math.min(7, o + 1))}
-                                className="w-6 h-6 flex items-center justify-center rounded bg-white border border-gray-300 text-gray-600 hover:bg-gray-100 text-xs"
+                                className="w-6 h-6 flex items-center justify-center rounded bg-white border border-gray-300 theme-text-muted hover:bg-gray-100 text-xs"
                             >+</button>
                         </div>
 
                         <div className="w-px h-5 bg-gray-300 mx-1"/>
 
                         {/* Cursor position */}
-                        <span className="text-xs text-gray-500">Beat: {inputCursor.toFixed(1)}</span>
+                        <span className="text-xs theme-text-muted">Beat: {inputCursor.toFixed(1)}</span>
                         <button
                             onClick={() => setInputCursor(0)}
                             className="text-xs text-purple-600 hover:text-purple-800 underline"
@@ -4500,14 +4504,14 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                         <div className="w-px h-5 bg-gray-300 mx-1"/>
                         <button
                             onClick={() => setInputCursor(prev => prev + inputNoteDuration)}
-                            className="px-2 py-1 rounded text-xs font-medium border border-gray-300 bg-white text-gray-600 hover:bg-gray-100"
+                            className="px-2 py-1 rounded text-xs font-medium border border-gray-300 bg-white theme-text-muted hover:bg-gray-100"
                             title="Advance cursor by one note duration"
                         >Next Beat</button>
                     </div>
 
                     {/* Note input keyboard */}
                     <div className="flex items-center gap-1 px-4 py-2 bg-gray-100 border-b border-gray-200 shrink-0 flex-wrap">
-                        <span className="text-xs text-gray-500 mr-1">Notes:</span>
+                        <span className="text-xs theme-text-muted mr-1">Notes:</span>
                         {sheetNoteNames.map(name => {
                             const isBlack = name.includes('#');
                             return (
@@ -4522,7 +4526,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                     {name !== 'E' && name !== 'B' && (
                                         <button
                                             onClick={() => addSheetNote(name + '#', inputOctave)}
-                                            className="h-8 w-7 rounded text-xs font-bold border border-gray-500 bg-gray-800 text-white hover:bg-purple-700 active:bg-purple-800 transition-colors -mx-0.5"
+                                            className="h-8 w-7 rounded text-xs font-bold border theme-border theme-bg-secondary text-white hover:bg-purple-700 active:bg-purple-800 transition-colors -mx-0.5"
                                         >
                                             {name}#
                                         </button>
@@ -4533,7 +4537,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                         <div className="w-px h-8 bg-gray-300 mx-2"/>
                         <button
                             onClick={addSheetRest}
-                            className="h-10 px-3 rounded text-sm border border-gray-400 bg-white text-gray-600 hover:bg-yellow-50 hover:border-yellow-400 active:bg-yellow-100 transition-colors"
+                            className="h-10 px-3 rounded text-sm border border-gray-400 bg-white theme-text-muted hover:bg-yellow-50 hover:border-yellow-400 active:bg-yellow-100 transition-colors"
                             title="Add rest"
                         >
                             Rest
@@ -4546,7 +4550,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                     setInputCursor(last.start);
                                 }
                             }}
-                            className="h-10 px-3 rounded text-sm border border-gray-400 bg-white text-gray-600 hover:bg-red-50 hover:border-red-400 active:bg-red-100 transition-colors"
+                            className="h-10 px-3 rounded text-sm border border-gray-400 bg-white theme-text-muted hover:bg-red-50 hover:border-red-400 active:bg-red-100 transition-colors"
                             title="Undo last note"
                         >
                             <Undo size={14}/>
@@ -4596,17 +4600,17 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                     {/* Note context menu */}
                     {noteContextMenu && (
                         <div
-                            className="fixed z-50 bg-gray-800 border border-gray-600 rounded-lg shadow-xl py-1 min-w-[180px]"
+                            className="fixed z-50 theme-bg-secondary border theme-border rounded-lg shadow-xl py-1 min-w-[180px]"
                             style={{ left: noteContextMenu.x, top: noteContextMenu.y }}
                             onClick={() => setNoteContextMenu(null)}
                         >
                             {noteContextMenu.noteIdx !== null ? (
                                 <>
-                                    <div className="px-3 py-1 text-xs text-gray-400 border-b border-gray-700">
+                                    <div className="px-3 py-1 text-xs theme-text-muted border-b theme-border">
                                         {noteToName(pianoNotes[noteContextMenu.noteIdx].note)} - Beat {pianoNotes[noteContextMenu.noteIdx].start.toFixed(1)}
                                     </div>
                                     <button
-                                        className="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-700 text-red-400"
+                                        className="w-full text-left px-3 py-1.5 text-sm theme-hover text-red-400"
                                         onClick={() => {
                                             setPianoNotes(prev => prev.filter((_, i) => i !== noteContextMenu.noteIdx));
                                             setNoteContextMenu(null);
@@ -4614,16 +4618,16 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                     >
                                         Delete Note
                                     </button>
-                                    <div className="border-t border-gray-700 my-1"/>
-                                    <div className="px-3 py-1 text-xs text-gray-400">Change Duration</div>
+                                    <div className="border-t theme-border my-1"/>
+                                    <div className="px-3 py-1 text-xs theme-text-muted">Change Duration</div>
                                     {[
                                         { v: 4, l: 'Whole' }, { v: 2, l: 'Half' }, { v: 1, l: 'Quarter' },
                                         { v: 0.5, l: 'Eighth' }, { v: 0.25, l: '16th' }
                                     ].map(d => (
                                         <button
                                             key={d.v}
-                                            className={`w-full text-left px-3 py-1 text-sm hover:bg-gray-700 ${
-                                                pianoNotes[noteContextMenu.noteIdx!]?.duration === d.v ? 'text-purple-400' : 'text-gray-300'
+                                            className={`w-full text-left px-3 py-1 text-sm theme-hover ${
+                                                pianoNotes[noteContextMenu.noteIdx!]?.duration === d.v ? 'text-purple-400' : 'theme-text-secondary'
                                             }`}
                                             onClick={() => {
                                                 const idx = noteContextMenu.noteIdx!;
@@ -4634,11 +4638,11 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                             {d.l} {pianoNotes[noteContextMenu.noteIdx!]?.duration === d.v ? '  *' : ''}
                                         </button>
                                     ))}
-                                    <div className="border-t border-gray-700 my-1"/>
-                                    <div className="px-3 py-1 text-xs text-gray-400">Octave</div>
+                                    <div className="border-t theme-border my-1"/>
+                                    <div className="px-3 py-1 text-xs theme-text-muted">Octave</div>
                                     <div className="flex gap-1 px-3 py-1">
                                         <button
-                                            className="px-2 py-0.5 bg-gray-700 rounded text-xs hover:bg-gray-600"
+                                            className="px-2 py-0.5 theme-bg-tertiary rounded text-xs theme-hover"
                                             onClick={() => {
                                                 const idx = noteContextMenu.noteIdx!;
                                                 setPianoNotes(prev => prev.map((n, i) => i === idx ? { ...n, note: Math.max(21, n.note - 12) } : n));
@@ -4646,7 +4650,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                             }}
                                         >Oct -</button>
                                         <button
-                                            className="px-2 py-0.5 bg-gray-700 rounded text-xs hover:bg-gray-600"
+                                            className="px-2 py-0.5 theme-bg-tertiary rounded text-xs theme-hover"
                                             onClick={() => {
                                                 const idx = noteContextMenu.noteIdx!;
                                                 setPianoNotes(prev => prev.map((n, i) => i === idx ? { ...n, note: Math.min(108, n.note + 12) } : n));
@@ -4654,15 +4658,15 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                             }}
                                         >Oct +</button>
                                     </div>
-                                    <div className="border-t border-gray-700 my-1"/>
-                                    <div className="px-3 py-1 text-xs text-gray-400">Velocity</div>
+                                    <div className="border-t theme-border my-1"/>
+                                    <div className="px-3 py-1 text-xs theme-text-muted">Velocity</div>
                                     <div className="flex gap-1 px-3 py-1">
                                         {[0.3, 0.5, 0.7, 0.9, 1.0].map(v => (
                                             <button
                                                 key={v}
                                                 className={`px-2 py-0.5 rounded text-xs ${
                                                     Math.abs((pianoNotes[noteContextMenu.noteIdx!]?.velocity || 0) - v) < 0.05
-                                                        ? 'bg-purple-600' : 'bg-gray-700 hover:bg-gray-600'
+                                                        ? 'bg-purple-600' : 'theme-bg-tertiary theme-hover'
                                                 }`}
                                                 onClick={() => {
                                                     const idx = noteContextMenu.noteIdx!;
@@ -4677,11 +4681,11 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                 </>
                             ) : (
                                 <>
-                                    <div className="px-3 py-1 text-xs text-gray-400 border-b border-gray-700">
+                                    <div className="px-3 py-1 text-xs theme-text-muted border-b theme-border">
                                         Measure {noteContextMenu.measureIdx + 1}, Beat {(noteContextMenu.beat % beatsPerMeasure).toFixed(1)}
                                     </div>
                                     <button
-                                        className="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-700 text-gray-300"
+                                        className="w-full text-left px-3 py-1.5 text-sm theme-hover theme-text-secondary"
                                         onClick={() => {
                                             setInputCursor(noteContextMenu.beat);
                                             setNoteContextMenu(null);
@@ -4690,7 +4694,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                         Set Cursor Here
                                     </button>
                                     <button
-                                        className="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-700 text-gray-300"
+                                        className="w-full text-left px-3 py-1.5 text-sm theme-hover theme-text-secondary"
                                         onClick={() => {
                                             setInputCursor(noteContextMenu.beat + inputNoteDuration);
                                             setNoteContextMenu(null);
@@ -4698,9 +4702,9 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                     >
                                         Add Rest Here
                                     </button>
-                                    <div className="border-t border-gray-700 my-1"/>
+                                    <div className="border-t theme-border my-1"/>
                                     <button
-                                        className="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-700 text-red-400"
+                                        className="w-full text-left px-3 py-1.5 text-sm theme-hover text-red-400"
                                         onClick={() => {
                                             const mStart = noteContextMenu.measureIdx * beatsPerMeasure;
                                             const mEnd = mStart + beatsPerMeasure;
@@ -4737,9 +4741,9 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                     <div className="bg-white rounded-lg p-6 shadow">
                         <div className="flex items-center gap-3 mb-4">
                             <span className="text-sm font-medium">TAB</span>
-                            <span className="text-xs text-gray-400">Standard Tuning (EADGBE)</span>
+                            <span className="text-xs theme-text-muted">Standard Tuning (EADGBE)</span>
                             <div className="w-px h-4 bg-gray-300"/>
-                            <span className="text-xs text-gray-500">Beat: {inputCursor.toFixed(1)}</span>
+                            <span className="text-xs theme-text-muted">Beat: {inputCursor.toFixed(1)}</span>
                             <button
                                 onClick={() => setInputCursor(0)}
                                 className="text-xs text-purple-600 hover:text-purple-800 underline"
@@ -4750,12 +4754,12 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                         <div className="relative font-mono text-sm">
                             {guitarStrings.map((stringName, stringIdx) => (
                                 <div key={stringIdx} className="flex items-center h-6">
-                                    <span className="w-6 text-gray-600 font-bold">{stringName}</span>
+                                    <span className="w-6 theme-text-muted font-bold">{stringName}</span>
                                     <div className="flex-1 border-b border-gray-400 relative flex">
                                         {Array.from({ length: totalBeats }).map((_, beat) => (
                                             <div
                                                 key={beat}
-                                                className={`w-8 text-center border-r cursor-pointer hover:bg-purple-50 ${beat % beatsPerMeasure === 0 ? 'border-gray-500' : 'border-gray-300'}`}
+                                                className={`w-8 text-center border-r cursor-pointer hover:bg-purple-50 ${beat % beatsPerMeasure === 0 ? 'theme-border' : 'border-gray-300'}`}
                                                 onClick={() => addTabNote(stringIdx, 0, beat)}
                                             >
                                                 {derivedTabNotes
@@ -4800,63 +4804,63 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
         return (
             <div className="flex-1 flex flex-col overflow-hidden">
                 {/* Toolbar */}
-                <div className="h-12 border-b theme-border flex items-center px-4 gap-2 bg-gray-800/50">
+                <div className="h-12 border-b theme-border flex items-center px-4 gap-2 theme-bg-secondary">
                     {/* View modes */}
                     <button
                         onClick={() => setNotationView('piano')}
-                        className={`px-3 py-1.5 rounded text-sm flex items-center gap-1 ${notationView === 'piano' ? 'bg-purple-600' : 'bg-gray-700 hover:bg-gray-600'}`}
+                        className={`px-3 py-1.5 rounded text-sm flex items-center gap-1 ${notationView === 'piano' ? 'bg-purple-600' : 'theme-bg-tertiary theme-hover'}`}
                     >
                         <Piano size={14}/> Piano Roll
                     </button>
                     <button
                         onClick={() => setNotationView('sheet')}
-                        className={`px-3 py-1.5 rounded text-sm flex items-center gap-1 ${notationView === 'sheet' ? 'bg-purple-600' : 'bg-gray-700 hover:bg-gray-600'}`}
+                        className={`px-3 py-1.5 rounded text-sm flex items-center gap-1 ${notationView === 'sheet' ? 'bg-purple-600' : 'theme-bg-tertiary theme-hover'}`}
                     >
                         <Music2 size={14}/> Sheet Music
                     </button>
                     <button
                         onClick={() => setNotationView('tab')}
-                        className={`px-3 py-1.5 rounded text-sm flex items-center gap-1 ${notationView === 'tab' ? 'bg-purple-600' : 'bg-gray-700 hover:bg-gray-600'}`}
+                        className={`px-3 py-1.5 rounded text-sm flex items-center gap-1 ${notationView === 'tab' ? 'bg-purple-600' : 'theme-bg-tertiary theme-hover'}`}
                     >
                         <Guitar size={14}/> Guitar Tab
                     </button>
-                    <div className="w-px h-6 bg-gray-600 mx-2"/>
+                    <div className="w-px h-6 theme-bg-tertiary mx-2"/>
 
                     {/* Playback controls */}
                     <button
                         onClick={() => setNotationPlayhead(0)}
-                        className="p-2 hover:bg-gray-700 rounded"
+                        className="p-2 theme-hover rounded"
                     >
                         <SkipBack size={16}/>
                     </button>
                     <button
                         onClick={playNotation}
                         disabled={pianoNotes.length === 0}
-                        className={`p-2 rounded ${pianoNotes.length > 0 ? 'bg-purple-600 hover:bg-purple-700' : 'bg-gray-700 opacity-50'}`}
+                        className={`p-2 rounded ${pianoNotes.length > 0 ? 'bg-purple-600 hover:bg-purple-700' : 'theme-bg-tertiary opacity-50'}`}
                     >
                         {isNotationPlaying ? <Pause size={16}/> : <Play size={16}/>}
                     </button>
 
-                    <div className="w-px h-6 bg-gray-600 mx-2"/>
+                    <div className="w-px h-6 theme-bg-tertiary mx-2"/>
 
                     {/* BPM */}
-                    <span className="text-xs text-gray-400">BPM:</span>
+                    <span className="text-xs theme-text-muted">BPM:</span>
                     <input
                         type="number"
                         value={notationBpm}
                         onChange={(e) => setNotationBpm(Math.max(40, Math.min(300, parseInt(e.target.value) || 120)))}
-                        className="w-16 px-2 py-1 bg-gray-700 rounded text-sm"
+                        className="w-16 px-2 py-1 theme-bg-tertiary rounded text-sm"
                     />
 
                     {/* Time signature */}
-                    <span className="text-xs text-gray-400 ml-2">Time:</span>
+                    <span className="text-xs theme-text-muted ml-2">Time:</span>
                     <select
                         value={`${notationTimeSignature[0]}/${notationTimeSignature[1]}`}
                         onChange={(e) => {
                             const [n, d] = e.target.value.split('/').map(Number);
                             setNotationTimeSignature([n, d]);
                         }}
-                        className="px-2 py-1 bg-gray-700 rounded text-sm"
+                        className="px-2 py-1 theme-bg-tertiary rounded text-sm"
                     >
                         <option value="4/4">4/4</option>
                         <option value="3/4">3/4</option>
@@ -4869,14 +4873,14 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                         <option value="12/8">12/8</option>
                     </select>
 
-                    <div className="w-px h-6 bg-gray-600 mx-2"/>
+                    <div className="w-px h-6 theme-bg-tertiary mx-2"/>
 
                     {/* Instrument selector */}
-                    <span className="text-xs text-gray-400">Instrument:</span>
+                    <span className="text-xs theme-text-muted">Instrument:</span>
                     <select
                         value={notationInstrument}
                         onChange={(e) => setNotationInstrument(e.target.value as typeof notationInstrument)}
-                        className="px-2 py-1 bg-gray-700 rounded text-sm"
+                        className="px-2 py-1 theme-bg-tertiary rounded text-sm"
                     >
                         <option value="triangle">Piano</option>
                         <option value="sine">Flute</option>
@@ -4890,7 +4894,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                     <button
                         onClick={deleteSelectedNotes}
                         disabled={selectedNotes.size === 0}
-                        className={`px-3 py-1.5 rounded text-sm flex items-center gap-1 ${selectedNotes.size > 0 ? 'bg-red-600 hover:bg-red-700' : 'bg-gray-700 opacity-50'}`}
+                        className={`px-3 py-1.5 rounded text-sm flex items-center gap-1 ${selectedNotes.size > 0 ? 'bg-red-600 hover:bg-red-700' : 'theme-bg-tertiary opacity-50'}`}
                     >
                         <Trash2 size={14}/> Delete ({selectedNotes.size})
                     </button>
@@ -4898,7 +4902,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                     {/* Clear all */}
                     <button
                         onClick={() => { setPianoNotes([]); setSelectedNotes(new Set()); setInputCursor(0); }}
-                        className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+                        className="px-3 py-1.5 theme-bg-tertiary theme-hover rounded text-sm"
                     >
                         Clear All
                     </button>
@@ -5042,7 +5046,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                 </div>
                 <div className="flex-1 overflow-y-auto p-2 space-y-1">
                     {audioDatasets.length === 0 ? (
-                        <div className="text-center py-8 text-gray-500 text-sm">
+                        <div className="text-center py-8 theme-text-muted text-sm">
                             <Package size={32} className="mx-auto mb-2 opacity-50"/>
                             <p>No datasets yet</p>
                             <p className="text-xs mt-1">Create one to start collecting training data</p>
@@ -5055,14 +5059,14 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                 className={`p-3 rounded cursor-pointer ${
                                     selectedDatasetId === dataset.id
                                         ? 'bg-purple-600/20 border border-purple-500/50'
-                                        : 'hover:bg-gray-700/50'
+                                        : 'theme-hover'
                                 }`}
                             >
                                 <div className="flex items-center justify-between">
                                     <span className="font-medium text-sm">{dataset.name}</span>
-                                    <span className="text-xs text-gray-500">{dataset.examples.length}</span>
+                                    <span className="text-xs theme-text-muted">{dataset.examples.length}</span>
                                 </div>
-                                <div className="text-xs text-gray-500 mt-1">
+                                <div className="text-xs theme-text-muted mt-1">
                                     {new Date(dataset.updatedAt).toLocaleDateString()}
                                 </div>
                             </div>
@@ -5076,10 +5080,10 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                 {selectedDataset ? (
                     <>
                         {/* Dataset Header */}
-                        <div className="p-4 border-b theme-border flex items-center justify-between bg-gray-800/50">
+                        <div className="p-4 border-b theme-border flex items-center justify-between theme-bg-secondary">
                             <div>
                                 <h4 className="font-semibold">{selectedDataset.name}</h4>
-                                <p className="text-xs text-gray-500">
+                                <p className="text-xs theme-text-muted">
                                     {selectedDataset.examples.length} audio samples
                                 </p>
                             </div>
@@ -5087,7 +5091,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                 <select
                                     value={datasetExportFormat}
                                     onChange={(e) => setDatasetExportFormat(e.target.value as any)}
-                                    className="px-2 py-1 text-xs bg-gray-800 border border-gray-600 rounded"
+                                    className="px-2 py-1 text-xs theme-bg-secondary border theme-border rounded"
                                 >
                                     <option value="jsonl">JSONL</option>
                                     <option value="csv">CSV</option>
@@ -5111,34 +5115,34 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                         {/* Examples List */}
                         <div className="flex-1 overflow-y-auto p-4 space-y-3">
                             {selectedDataset.examples.length === 0 ? (
-                                <div className="text-center py-12 text-gray-500">
+                                <div className="text-center py-12 theme-text-muted">
                                     <Layers size={32} className="mx-auto mb-2 opacity-50" />
                                     <p>No samples in this dataset</p>
                                     <p className="text-xs mt-1">Generate audio and add it here</p>
                                 </div>
                             ) : (
                                 selectedDataset.examples.map(ex => (
-                                    <div key={ex.id} className="p-4 bg-gray-800 rounded-lg border border-gray-700">
+                                    <div key={ex.id} className="p-4 theme-bg-secondary rounded-lg border theme-border">
                                         <div className="flex items-start gap-4">
                                             <div className="w-16 h-16 bg-gradient-to-br from-purple-600/30 to-pink-600/30 rounded-lg flex items-center justify-center flex-shrink-0">
                                                 <Music size={24} className="text-purple-400"/>
                                             </div>
                                             <div className="flex-1 min-w-0">
                                                 <p className="font-medium text-sm truncate">{ex.prompt}</p>
-                                                <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+                                                <div className="flex items-center gap-3 mt-1 text-xs theme-text-muted">
                                                     <span>{formatTime(ex.duration)}</span>
-                                                    <span className="px-1.5 py-0.5 bg-gray-700 rounded">{ex.model}</span>
+                                                    <span className="px-1.5 py-0.5 theme-bg-tertiary rounded">{ex.model}</span>
                                                 </div>
                                             </div>
                                         </div>
-                                        <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-700">
+                                        <div className="flex items-center justify-between mt-3 pt-3 border-t theme-border">
                                             <div className="flex items-center gap-2">
-                                                <span className="text-xs text-gray-500">Quality:</span>
+                                                <span className="text-xs theme-text-muted">Quality:</span>
                                                 {[1, 2, 3, 4, 5].map(score => (
                                                     <button
                                                         key={score}
                                                         onClick={() => updateAudioExampleQuality(selectedDataset.id, ex.id, score)}
-                                                        className={`p-0.5 ${ex.qualityScore >= score ? 'text-purple-400' : 'text-gray-600'}`}
+                                                        className={`p-0.5 ${ex.qualityScore >= score ? 'text-purple-400' : 'theme-text-muted'}`}
                                                     >
                                                         <Star size={14} fill={ex.qualityScore >= score ? 'currentColor' : 'none'} />
                                                     </button>
@@ -5162,7 +5166,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                         </div>
                     </>
                 ) : (
-                    <div className="flex-1 flex items-center justify-center text-gray-500">
+                    <div className="flex-1 flex items-center justify-center theme-text-muted">
                         <div className="text-center">
                             <Package size={48} className="mx-auto mb-3 opacity-50" />
                             <p>Select a dataset or create a new one</p>
@@ -5175,7 +5179,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
             {/* Create Dataset Modal */}
             {showCreateDataset && (
                 <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[200]" onClick={() => setShowCreateDataset(false)}>
-                    <div className="bg-gray-800 rounded-lg shadow-xl w-96 p-6" onClick={e => e.stopPropagation()}>
+                    <div className="theme-bg-secondary rounded-lg shadow-xl w-96 p-6" onClick={e => e.stopPropagation()}>
                         <h4 className="text-lg font-semibold mb-4 flex items-center gap-2">
                             <Package className="text-purple-400" size={18} />
                             Create Audio Dataset
@@ -5186,13 +5190,13 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                             onChange={(e) => setNewDatasetName(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && createAudioDataset()}
                             placeholder="Dataset name..."
-                            className="w-full px-3 py-2 bg-gray-700 text-white border border-gray-600 rounded focus:border-purple-500 focus:outline-none mb-4"
+                            className="w-full px-3 py-2 theme-bg-tertiary theme-text-primary border theme-border rounded focus:border-purple-500 focus:outline-none mb-4"
                             autoFocus
                         />
                         <div className="flex justify-end gap-2">
                             <button
                                 onClick={() => setShowCreateDataset(false)}
-                                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded"
+                                className="px-4 py-2 theme-bg-tertiary theme-hover theme-text-primary rounded"
                             >
                                 Cancel
                             </button>
@@ -5216,26 +5220,26 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                 {renderSidebar()}
                 <main className="flex-1 flex flex-col overflow-hidden relative">
                     {/* Mode Selector - inline bar, not absolute overlay */}
-                    <div className="flex items-center h-10 px-2 bg-gray-900/80 border-b border-gray-700 shrink-0">
+                    <div className="flex items-center h-10 px-2 theme-bg-primary border-b theme-border shrink-0">
                         <div className="relative group">
-                            <button className="flex items-center gap-2 px-3 py-1.5 bg-gray-800/90 hover:bg-gray-700 rounded-lg border border-gray-600 text-sm backdrop-blur-sm">
+                            <button className="flex items-center gap-2 px-3 py-1.5 theme-bg-secondary theme-hover rounded-lg border theme-border text-sm backdrop-blur-sm">
                                 <CurrentModeIcon size={16} className="text-purple-400"/>
                                 <span className="font-medium">{currentMode_obj.name}</span>
-                                <ChevronRight size={14} className="text-gray-500 rotate-90"/>
+                                <ChevronRight size={14} className="theme-text-muted rotate-90"/>
                             </button>
-                            <div className="absolute top-full left-0 mt-1 w-48 bg-gray-800/95 backdrop-blur-sm rounded-lg border border-gray-600 shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+                            <div className="absolute top-full left-0 mt-1 w-48 theme-bg-secondary backdrop-blur-sm rounded-lg border theme-border shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
                                 <div className="py-1">
                                     {['browse', 'create', 'edit', 'analyze', 'train'].map(group => (
                                         <React.Fragment key={group}>
-                                            <div className="px-3 py-1 text-xs text-gray-500 uppercase">{group}</div>
+                                            <div className="px-3 py-1 text-xs theme-text-muted uppercase">{group}</div>
                                             {SCHERZO_MODES.filter(m => m.group === group).map(mode => {
                                                 const ModeIcon = mode.icon;
                                                 return (
                                                     <button
                                                         key={mode.id}
                                                         onClick={() => setActiveMode(mode.id)}
-                                                        className={`w-full px-3 py-1.5 flex items-center gap-2 text-sm hover:bg-gray-700 ${
-                                                            activeMode === mode.id ? 'text-purple-400 bg-purple-600/20' : 'text-gray-300'
+                                                        className={`w-full px-3 py-1.5 flex items-center gap-2 text-sm theme-hover ${
+                                                            activeMode === mode.id ? 'text-purple-400 bg-purple-600/20' : 'theme-text-secondary'
                                                         }`}
                                                     >
                                                         <ModeIcon size={14}/>{mode.name}
@@ -5270,7 +5274,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                                 key={mode}
                                                 onClick={() => setVisualizerMode(mode)}
                                                 className={`px-3 py-1 text-xs rounded ${
-                                                    visualizerMode === mode ? 'bg-purple-600' : 'bg-gray-800 hover:bg-gray-700'
+                                                    visualizerMode === mode ? 'bg-purple-600' : 'theme-bg-secondary theme-hover'
                                                 }`}
                                             >
                                                 {mode}
@@ -5298,7 +5302,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                 </div>
                                 <button
                                     onClick={() => setVisualizerActive(false)}
-                                    className="p-2 hover:bg-gray-800 rounded"
+                                    className="p-2 theme-hover rounded"
                                 >
                                     <X size={20}/>
                                 </button>
@@ -5330,14 +5334,14 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                                     <div className="flex-1">
                                         <div className="text-lg font-medium">{selectedAudio.name}</div>
                                         <div className="flex items-center gap-2 mt-1">
-                                            <span className="text-sm text-gray-400">{formatTime(currentTime)}</span>
-                                            <div className="flex-1 h-1 bg-gray-700 rounded overflow-hidden">
+                                            <span className="text-sm theme-text-muted">{formatTime(currentTime)}</span>
+                                            <div className="flex-1 h-1 theme-bg-tertiary rounded overflow-hidden">
                                                 <div
                                                     className="h-full bg-purple-500"
                                                     style={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }}
                                                 />
                                             </div>
-                                            <span className="text-sm text-gray-400">{formatTime(duration)}</span>
+                                            <span className="text-sm theme-text-muted">{formatTime(duration)}</span>
                                         </div>
                                     </div>
                                 </div>

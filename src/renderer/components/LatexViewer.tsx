@@ -10,7 +10,7 @@ import {
     ChevronLeft, ChevronsUpDown
 } from 'lucide-react';
 import CodeMirror from '@uiw/react-codemirror';
-import { EditorView, lineNumbers, highlightActiveLineGutter, highlightActiveLine, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightSpecialChars } from '@codemirror/view';
+import { EditorView, ViewPlugin, lineNumbers, highlightActiveLineGutter, highlightActiveLine, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightSpecialChars } from '@codemirror/view';
 import { keymap } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap, indentWithTab, undo, redo } from '@codemirror/commands';
@@ -90,7 +90,7 @@ const latexLanguage = StreamLanguage.define({
     languageData: { commentTokens: { line: '%' } },
 });
 
-const latexHighlightStyle = HighlightStyle.define([
+const latexHighlightStyleDark = HighlightStyle.define([
     { tag: t.keyword, color: '#cba6f7', fontWeight: 'bold' },
     { tag: t.function(t.variableName), color: '#89b4fa' },
     { tag: t.typeName, color: '#f9e2af' },
@@ -101,6 +101,19 @@ const latexHighlightStyle = HighlightStyle.define([
     { tag: t.bracket, color: '#f38ba8' },
     { tag: t.squareBracket, color: '#a6e3a1' },
     { tag: t.link, color: '#74c7ec', textDecoration: 'underline' },
+]);
+
+const latexHighlightStyleLight = HighlightStyle.define([
+    { tag: t.keyword, color: '#7c3aed', fontWeight: 'bold' },
+    { tag: t.function(t.variableName), color: '#2563eb' },
+    { tag: t.typeName, color: '#b45309' },
+    { tag: t.comment, color: '#94a3b8', fontStyle: 'italic' },
+    { tag: t.number, color: '#c2410c' },
+    { tag: t.operator, color: '#0d9488' },
+    { tag: t.escape, color: '#16a34a' },
+    { tag: t.bracket, color: '#db2777' },
+    { tag: t.squareBracket, color: '#16a34a' },
+    { tag: t.link, color: '#0891b2', textDecoration: 'underline' },
 ]);
 
 // Quick symbols for math
@@ -491,7 +504,7 @@ Hello, world!
 ` },
 ];
 
-const editorTheme = EditorView.theme({
+const editorThemeDark = EditorView.theme({
     '&': { height: '100%', fontSize: '13px', backgroundColor: '#1e1e2e' },
     '.cm-content': {
         fontFamily: '"Fira Code", "JetBrains Mono", "Cascadia Code", Menlo, monospace',
@@ -528,6 +541,45 @@ const editorTheme = EditorView.theme({
     '.cm-tooltip': { backgroundColor: '#1e1e2e', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px' },
     '.cm-tooltip-autocomplete': { backgroundColor: '#1e1e2e', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px' },
     '.cm-tooltip-autocomplete > ul > li[aria-selected]': { backgroundColor: 'rgba(137, 180, 250, 0.15)', color: '#cdd6f4' },
+});
+
+const editorThemeLight = EditorView.theme({
+    '&': { height: '100%', fontSize: '13px', backgroundColor: 'var(--theme-bg)' },
+    '.cm-content': {
+        fontFamily: '"Fira Code", "JetBrains Mono", "Cascadia Code", Menlo, monospace',
+        caretColor: '#2563eb',
+        padding: '8px 0',
+        lineHeight: '1.6',
+    },
+    '.cm-cursor': { borderLeftColor: '#2563eb', borderLeftWidth: '2px' },
+    '& .cm-selectionBackground, &.cm-focused .cm-selectionBackground': {
+        backgroundColor: 'rgba(37, 99, 235, 0.15)',
+    },
+    '& .cm-activeLine, &.cm-focused .cm-activeLine': {
+        backgroundColor: 'rgba(0, 0, 0, 0.04)',
+    },
+    '& .cm-activeLineGutter': {
+        backgroundColor: 'rgba(0, 0, 0, 0.04)',
+        color: '#475569',
+    },
+    '.cm-gutters': {
+        backgroundColor: 'var(--theme-bg-secondary)',
+        color: '#94a3b8',
+        borderRight: '1px solid var(--theme-border)',
+    },
+    '.cm-lineNumbers .cm-gutterElement': { padding: '0 12px 0 16px', minWidth: '44px', fontSize: '11px' },
+    '&.cm-focused .cm-matchingBracket': {
+        backgroundColor: 'rgba(16, 163, 127, 0.15)',
+        outline: '1px solid rgba(16, 163, 127, 0.4)',
+        borderRadius: '2px',
+    },
+    '.cm-searchMatch': { backgroundColor: 'rgba(245, 158, 11, 0.2)', borderRadius: '2px' },
+    '.cm-searchMatch.cm-searchMatch-selected': { backgroundColor: 'rgba(245, 158, 11, 0.4)' },
+    '.cm-foldGutter .cm-gutterElement': { color: '#94a3b8', fontSize: '12px' },
+    '.cm-foldGutter .cm-gutterElement:hover': { color: '#2563eb' },
+    '.cm-tooltip': { backgroundColor: 'var(--theme-bg)', border: '1px solid var(--theme-border)', borderRadius: '8px' },
+    '.cm-tooltip-autocomplete': { backgroundColor: 'var(--theme-bg)', border: '1px solid var(--theme-border)', borderRadius: '8px' },
+    '.cm-tooltip-autocomplete > ul > li[aria-selected]': { backgroundColor: 'rgba(37, 99, 235, 0.1)', color: '#1e293b' },
 });
 
 const LatexViewer = ({
@@ -574,8 +626,37 @@ const LatexViewer = ({
     const [showSymbols, setShowSymbols] = useState(false);
     const [showLog, setShowLog] = useState(false);
     const [showOutline, setShowOutline] = useState(false);
+    const [isDarkMode, setIsDarkMode] = useState(() => !document.body.classList.contains('light-mode'));
+    const [isCompact, setIsCompact] = useState(false);
+    const [showSavedFlash, setShowSavedFlash] = useState(false);
+    const [openPdfOnBuild, setOpenPdfOnBuild] = useState(() => localStorage.getItem('latex_openPdfOnBuild') !== 'false');
+    const resizeObserverRef = useRef<ResizeObserver | null>(null);
+    const toolbarRef = useCallback((node: HTMLDivElement | null) => {
+        if (resizeObserverRef.current) {
+            resizeObserverRef.current.disconnect();
+            resizeObserverRef.current = null;
+        }
+        if (node) {
+            const observer = new ResizeObserver(entries => {
+                for (const entry of entries) {
+                    setIsCompact(entry.contentRect.width < 1040);
+                }
+            });
+            observer.observe(node);
+            resizeObserverRef.current = observer;
+        }
+    }, []);
     const editorRef = useRef<any>(null);
     const editorViewRef = useRef<any>(null);
+
+    // Watch for light/dark mode changes
+    useEffect(() => {
+        const observer = new MutationObserver(() => {
+            setIsDarkMode(!document.body.classList.contains('light-mode'));
+        });
+        observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+        return () => observer.disconnect();
+    }, []);
 
     // Bibliography state
     const [bibFilePath, setBibFilePath] = useState<string | null>(null);
@@ -933,8 +1014,8 @@ const LatexViewer = ({
 
     const extensions = useMemo(() => [
         latexLanguage,
-        syntaxHighlighting(latexHighlightStyle),
-        editorTheme,
+        syntaxHighlighting(isDarkMode ? latexHighlightStyleDark : latexHighlightStyleLight),
+        isDarkMode ? editorThemeDark : editorThemeLight,
         lineNumbers(),
         highlightActiveLineGutter(),
         highlightActiveLine(),
@@ -990,19 +1071,49 @@ const LatexViewer = ({
         EditorView.updateListener.of((update) => {
             if (update.view) editorViewRef.current = update.view;
         }),
-    ], [citationCompletion, latexCommandCompletion]);
+        // Scroll preservation via ViewPlugin — no race conditions with CM's resize handler
+        ViewPlugin.fromClass(class {
+            savedScrollTop: number;
+            lastHeight: number;
+            pendingRestore: boolean;
+            constructor(view: any) {
+                const initial = paneData?._scrollTopPos ?? 0;
+                this.savedScrollTop = initial;
+                this.lastHeight = 0;
+                this.pendingRestore = initial > 0;
+            }
+            update(update: any) {
+                const scrollDOM = update.view.scrollDOM;
+                const height = scrollDOM?.clientHeight ?? 0;
+                const wasHidden = this.lastHeight === 0 && height > 0;
+                this.lastHeight = height;
+                if (height === 0) return;
 
-    // Save editor state (including undo history) on unmount so it survives layout changes
+                if (wasHidden && this.savedScrollTop > 0) this.pendingRestore = true;
+
+                if (this.pendingRestore) {
+                    this.pendingRestore = false;
+                    const st = this.savedScrollTop;
+                    scrollDOM.scrollTop = st;
+                    return;
+                }
+
+                // Track pixel scroll position
+                const currentTop = scrollDOM.scrollTop;
+                if (currentTop !== this.savedScrollTop) {
+                    this.savedScrollTop = currentTop;
+                    if (paneData) paneData._scrollTopPos = currentTop;
+                }
+            }
+        }),
+    ], [citationCompletion, latexCommandCompletion, isDarkMode, paneData]);
+
+    // Save to paneData on unmount
     useEffect(() => {
         return () => {
             const view = editorViewRef.current;
             if (view && paneData) {
-                try {
-                    paneData._editorStateJSON = view.state.toJSON({ history: history() });
-                    paneData._cursorPos = view.state.selection.main.head;
-                } catch (e) {
-                    // Serialization might fail for some state extensions - that's OK
-                }
+                try { paneData._scrollTopPos = view.scrollDOM.scrollTop; } catch (e) {}
             }
         };
     }, [nodeId]);
@@ -1197,6 +1308,8 @@ const LatexViewer = ({
         try {
             await (window as any).api.writeFileContent(filePath, content);
             setHasChanges(false);
+            setShowSavedFlash(true);
+            setTimeout(() => setShowSavedFlash(false), 1500);
         } catch (e: any) {
             setError(e.message || String(e));
         } finally {
@@ -1284,7 +1397,7 @@ const LatexViewer = ({
                 save();
             } else if (isCtrl && e.key === 'Enter') {
                 e.preventDefault();
-                compile(true);
+                compile(openPdfOnBuild);
             } else if (isCtrl && e.key === '/') {
                 e.preventDefault();
                 toggleComment();
@@ -1310,7 +1423,7 @@ const LatexViewer = ({
         };
         window.addEventListener('keydown', handler);
         return () => window.removeEventListener('keydown', handler);
-    }, [save, compile, insertAtCursor, toggleComment, toggleBlockComment, wrapInEnvironment]);
+    }, [save, compile, insertAtCursor, toggleComment, toggleBlockComment, wrapInEnvironment, openPdfOnBuild]);
 
     // Expose save/compile on paneData so PaneHeader buttons can call them
     useEffect(() => {
@@ -1380,6 +1493,7 @@ const LatexViewer = ({
         <div className="h-full flex flex-col overflow-hidden theme-bg-primary">
             {/* Toolbar (also serves as pane header — draggable, with close/zen) */}
             <div
+                ref={toolbarRef}
                 className="flex items-center gap-0.5 px-1 h-10 flex-shrink-0 theme-bg-secondary border-b theme-border"
                 style={{ cursor: 'move' }}
                 draggable={renamingPaneId !== nodeId}
@@ -1403,7 +1517,7 @@ const LatexViewer = ({
                     <button
                         onClick={(e) => { e.stopPropagation(); onToggleZen(); }}
                         onMouseDown={(e) => e.stopPropagation()}
-                        className={`p-1 theme-hover rounded flex-shrink-0 ${isZenMode ? 'text-blue-400' : 'text-gray-400 hover:text-blue-400'}`}
+                        className={`p-1 theme-hover rounded flex-shrink-0 ${isZenMode ? 'text-blue-400' : 'theme-text-muted hover:text-blue-400'}`}
                         title={isZenMode ? "Exit zen mode (Esc)" : "Enter zen mode"}
                     >
                         {isZenMode ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
@@ -1437,7 +1551,7 @@ const LatexViewer = ({
                 ) : (
                     <div className="flex items-center gap-0.5 flex-shrink-0 px-1 min-w-0">
                         <span
-                            className="text-[11px] font-semibold text-gray-300 truncate max-w-[120px] cursor-default"
+                            className="text-[11px] font-semibold theme-text-primary truncate max-w-[120px] cursor-default"
                             onDoubleClick={(e) => { e.stopPropagation(); e.preventDefault(); setRenamingPaneId(nodeId); setEditedFileName(getFileName(filePath) || ''); }}
                         >
                             {getFileName(filePath) || 'LaTeX'}{hasChanges ? ' *' : ''}
@@ -1466,18 +1580,17 @@ const LatexViewer = ({
                                 className={`h-7 px-2.5 text-[11px] rounded-md flex items-center gap-1.5 transition-all duration-150
                                     ${activeMenu === 'templates'
                                         ? 'bg-gradient-to-b from-violet-500/25 to-violet-600/15 text-violet-300 shadow-[inset_0_0_0_1px_rgba(139,92,246,0.3)]'
-                                        : 'text-gray-400 hover:text-gray-200 hover:bg-white/[0.07]'}`}
+                                        : 'theme-text-muted hover:theme-text-primary theme-hover'}`}
                             >
                                 <FileText size={12} />
-                                <span>Templates</span>
-                                <ChevronDown size={9} className="opacity-50" />
+                                {!isCompact && <span>Templates</span>}
+                                {!isCompact && <ChevronDown size={9} className="opacity-50" />}
                             </button>
                             {activeMenu === 'templates' && (
-                                <div className="absolute top-full left-0 mt-1.5 rounded-xl shadow-2xl z-50 min-w-[160px] py-1.5 border border-white/[0.1] backdrop-blur-xl overflow-hidden"
-                                    style={{ background: 'linear-gradient(180deg, #242538 0%, #1e1f2e 100%)' }}>
+                                <div className="absolute top-full left-0 mt-1.5 rounded-xl shadow-2xl z-50 min-w-[160px] py-1.5 border theme-border backdrop-blur-xl overflow-hidden theme-bg-secondary">
                                     {TEMPLATES.map(t => (
                                         <button key={t.label} onClick={() => applyTemplate(t.content)}
-                                            className="w-full px-3 py-2 text-left text-[11px] text-gray-300 hover:bg-gradient-to-r hover:from-violet-500/10 hover:to-transparent hover:text-white transition-all duration-100">
+                                            className="w-full px-3 py-2 text-left text-[11px] theme-text-secondary hover:bg-gradient-to-r hover:from-violet-500/10 hover:to-transparent hover:theme-text-primary transition-all duration-100">
                                             {t.label}
                                         </button>
                                     ))}
@@ -1520,7 +1633,7 @@ const LatexViewer = ({
                             <button
                                 onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === cat ? null : cat); }}
                                 className={`h-7 px-2 text-[11px] rounded-md flex items-center gap-1.5 transition-all duration-150
-                                    ${activeMenu === cat ? 'text-white' : 'text-gray-400 hover:text-gray-200 hover:bg-white/[0.07]'}`}
+                                    ${activeMenu === cat ? '' : 'theme-text-muted theme-hover'}`}
                                 style={activeMenu === cat ? {
                                     background: `linear-gradient(180deg, ${accentColor}22 0%, ${accentColor}11 100%)`,
                                     boxShadow: `inset 0 0 0 1px ${accentColor}33`,
@@ -1528,22 +1641,18 @@ const LatexViewer = ({
                                 } : undefined}
                             >
                                 <Icon size={12} />
-                                <span className="capitalize">{cat}</span>
-                                <ChevronDown size={9} className="opacity-40" />
+                                {!isCompact && <span className="capitalize">{cat}</span>}
+                                {!isCompact && <ChevronDown size={9} className="opacity-40" />}
                             </button>
                             {activeMenu === cat && (
-                                <div className="absolute top-full left-0 mt-1.5 rounded-xl shadow-2xl z-50 min-w-[190px] py-1.5 max-h-80 overflow-y-auto border overflow-hidden backdrop-blur-xl"
-                                    style={{
-                                        background: 'linear-gradient(180deg, #242538 0%, #1e1f2e 100%)',
-                                        borderColor: `${accentColor}22`,
-                                    }}>
+                                <div className="absolute top-full left-0 mt-1.5 rounded-xl shadow-2xl z-50 min-w-[190px] py-1.5 max-h-80 overflow-y-auto border theme-border overflow-hidden backdrop-blur-xl theme-bg-secondary">
                                     {items.map(item => (
                                         <button
                                             key={item.label}
                                             onClick={() => handleSnippetClick(item.snippet)}
-                                            className="w-full px-3 py-1.5 text-left text-[11px] text-gray-300 hover:text-white flex items-center gap-2.5 transition-all duration-100"
+                                            className="w-full px-3 py-1.5 text-left text-[11px] theme-text-secondary flex items-center gap-2.5 transition-all duration-100"
                                             style={{ }}
-                                            onMouseEnter={e => (e.currentTarget.style.background = `linear-gradient(90deg, ${accentColor}12 0%, transparent 100%)`)}
+                                            onMouseEnter={e => (e.currentTarget.style.background = `linear-gradient(90deg, ${accentColor}18 0%, transparent 100%)`)}
                                             onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                                         >
                                             <item.icon size={12} className="flex-shrink-0" style={{ color: `${accentColor}99` }} />
@@ -1569,7 +1678,7 @@ const LatexViewer = ({
                                     const dir = filePath.substring(0, filePath.lastIndexOf('/'));
                                     setBibFilePath(dir + '/' + e.target.value);
                                 }}
-                                className="h-6 px-1 text-[10px] bg-transparent border border-white/10 rounded text-gray-300 focus:outline-none focus:border-yellow-500/50"
+                                className="h-6 px-1 text-[10px] bg-transparent border theme-border rounded theme-text-secondary focus:outline-none focus:border-yellow-500/50"
                             >
                                 <option value="">No .bib</option>
                                 {availableBibFiles.map(f => (
@@ -1577,7 +1686,7 @@ const LatexViewer = ({
                                 ))}
                             </select>
                             {bibEntries.length > 0 && (
-                                <span className="text-[9px] text-gray-500">{bibEntries.length} refs</span>
+                                <span className="text-[9px] theme-text-muted">{bibEntries.length} refs</span>
                             )}
                         </div>
                     </>
@@ -1585,24 +1694,33 @@ const LatexViewer = ({
 
                 <div className="flex-1" />
 
-                {/* Compile button */}
-                <button
-                    onClick={() => compile(true)}
-                    disabled={isCompiling}
-                    className="h-7 px-3 text-[11px] rounded-md flex items-center gap-1.5 transition-all duration-150 font-medium"
-                    style={{
-                        background: isCompiling
-                            ? 'rgba(96,165,250,0.15)'
-                            : 'linear-gradient(180deg, rgba(96,165,250,0.2) 0%, rgba(96,165,250,0.1) 100%)',
-                        color: '#93c5fd',
-                        boxShadow: 'inset 0 0 0 1px rgba(96,165,250,0.2)',
-                    }}
-                    onMouseEnter={e => !isCompiling && (e.currentTarget.style.background = 'linear-gradient(180deg, rgba(96,165,250,0.3) 0%, rgba(96,165,250,0.15) 100%)')}
-                    onMouseLeave={e => !isCompiling && (e.currentTarget.style.background = 'linear-gradient(180deg, rgba(96,165,250,0.2) 0%, rgba(96,165,250,0.1) 100%)')}
-                >
-                    {isCompiling ? <Loader size={12} className="animate-spin" /> : <Play size={12} />}
-                    <span>{isCompiling ? 'Building...' : 'Build'}</span>
-                </button>
+                {/* Compile button + PDF toggle */}
+                <div className="flex items-center gap-0.5">
+                    <button
+                        onClick={() => compile(openPdfOnBuild)}
+                        disabled={isCompiling}
+                        className="h-7 px-3 text-[11px] rounded-md flex items-center gap-1.5 transition-all duration-150 font-medium"
+                        style={{
+                            background: isCompiling
+                                ? 'var(--theme-hover)'
+                                : isDarkMode
+                                    ? 'linear-gradient(180deg, rgba(96,165,250,0.2) 0%, rgba(96,165,250,0.1) 100%)'
+                                    : 'linear-gradient(180deg, rgba(37,99,235,0.12) 0%, rgba(37,99,235,0.06) 100%)',
+                            color: isDarkMode ? '#93c5fd' : '#2563eb',
+                            boxShadow: isDarkMode ? 'inset 0 0 0 1px rgba(96,165,250,0.2)' : 'inset 0 0 0 1px rgba(37,99,235,0.15)',
+                        }}
+                    >
+                        {isCompiling ? <Loader size={12} className="animate-spin" /> : <Play size={12} />}
+                        {!isCompact && <span>{isCompiling ? 'Building...' : 'Build'}</span>}
+                    </button>
+                    <button
+                        onClick={() => { const next = !openPdfOnBuild; setOpenPdfOnBuild(next); localStorage.setItem('latex_openPdfOnBuild', String(next)); }}
+                        className="w-6 h-7 flex items-center justify-center rounded-md theme-text-muted transition-all duration-150"
+                        title={openPdfOnBuild ? 'PDF opens after build (click to disable)' : 'PDF will not open after build (click to enable)'}
+                    >
+                        {openPdfOnBuild ? <Eye size={11} /> : <EyeOff size={11} />}
+                    </button>
+                </div>
 
                 <ToolbarDivider />
 
@@ -1610,12 +1728,14 @@ const LatexViewer = ({
                 <ToolbarButton onClick={() => setShowSymbols(!showSymbols)} title="Math Symbols" active={showSymbols}><Sigma size={14} /></ToolbarButton>
 
                 {/* Stats pill */}
-                <div className="flex items-center gap-2 ml-1.5 px-2.5 h-6 rounded-full text-[10px] text-gray-500 tabular-nums"
-                    style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.04)' }}>
-                    <span>{stats.lines} <span className="text-gray-600">ln</span></span>
-                    <span className="w-px h-3 bg-white/[0.06]" />
-                    <span>{stats.words} <span className="text-gray-600">w</span></span>
-                </div>
+                {!isCompact && (
+                    <div className="flex items-center gap-2 ml-1.5 px-2.5 h-6 rounded-full text-[10px] theme-text-muted tabular-nums"
+                        style={{ background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)', border: isDarkMode ? '1px solid rgba(255,255,255,0.04)' : '1px solid rgba(0,0,0,0.06)' }}>
+                        <span>{stats.lines} <span className="opacity-60">ln</span></span>
+                        <span className="w-px h-3" style={{ background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.08)' }} />
+                        <span>{stats.words} <span className="opacity-60">w</span></span>
+                    </div>
+                )}
 
                 <ToolbarDivider />
 
@@ -1623,10 +1743,10 @@ const LatexViewer = ({
                 <button
                     onClick={(e) => { e.stopPropagation(); save(); }}
                     disabled={!hasChanges || isSaving}
-                    className="p-1 rounded text-xs theme-hover disabled:opacity-30 flex-shrink-0"
+                    className={`p-1 rounded text-xs theme-hover disabled:opacity-30 flex-shrink-0 transition-all duration-300 ${showSavedFlash ? 'text-emerald-500' : ''}`}
                     title="Save (Ctrl+S)"
                 >
-                    {isSaving ? <Loader size={12} className="animate-spin" /> : <Save size={12} />}
+                    {isSaving ? <Loader size={12} className="animate-spin" /> : showSavedFlash ? <CheckCircle size={12} /> : <Save size={12} />}
                 </button>
 
                 {/* Close button */}
@@ -1634,7 +1754,7 @@ const LatexViewer = ({
                     <button
                         onClick={(e) => { e.stopPropagation(); onClose(); }}
                         onMouseDown={(e) => e.stopPropagation()}
-                        className="p-1 theme-hover rounded flex-shrink-0 text-gray-400 hover:text-red-400"
+                        className="p-1 theme-hover rounded flex-shrink-0 theme-text-muted hover:text-red-400"
                         title="Close pane"
                     >
                         <X size={14} />
@@ -1646,19 +1766,18 @@ const LatexViewer = ({
             <div className="flex-1 flex min-h-0 overflow-hidden">
                 {/* Outline panel */}
                 {showOutline && (
-                    <div className="w-56 flex flex-col flex-shrink-0 overflow-hidden" style={{
-                        background: 'linear-gradient(180deg, #181925 0%, #14151d 100%)',
-                        borderRight: '1px solid rgba(255,255,255,0.06)',
+                    <div className="w-56 flex flex-col flex-shrink-0 overflow-hidden theme-bg-secondary" style={{
+                        borderRight: '1px solid var(--theme-border)',
                     }}>
-                        <div className="flex items-center justify-between px-3 h-9 flex-shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                        <div className="flex items-center justify-between px-3 h-9 flex-shrink-0" style={{ borderBottom: '1px solid var(--theme-border)' }}>
                             <div className="flex items-center gap-2">
                                 <BookOpen size={11} className="text-violet-400/70" />
-                                <span className="text-[10px] font-semibold text-gray-300 tracking-wider uppercase">Outline</span>
+                                <span className="text-[10px] font-semibold theme-text-primary tracking-wider uppercase">Outline</span>
                             </div>
-                            <span className="text-[9px] text-gray-600 tabular-nums px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(255,255,255,0.04)' }}>{sectionOutline.length}</span>
+                            <span className="text-[9px] theme-text-muted tabular-nums px-1.5 py-0.5 rounded-full" style={{ background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)' }}>{sectionOutline.length}</span>
                         </div>
                         {outline.length === 0 ? (
-                            <div className="p-4 text-[11px] text-gray-600 leading-relaxed">
+                            <div className="p-4 text-[11px] theme-text-muted leading-relaxed">
                                 No sections yet.<br />
                                 Add <code className="px-1.5 py-0.5 rounded text-[10px] text-violet-400/80" style={{ background: 'rgba(139,92,246,0.1)' }}>\section{'{}'}</code> to get started.
                             </div>
@@ -1679,18 +1798,18 @@ const LatexViewer = ({
                                         <button
                                             key={i}
                                             onClick={() => goToLine(item.line)}
-                                            className="w-full text-left py-1.5 px-1.5 flex items-center gap-2 rounded-lg transition-all duration-100 hover:bg-white/[0.05] active:bg-white/[0.1] group"
+                                            className="w-full text-left py-1.5 px-1.5 flex items-center gap-2 rounded-lg transition-all duration-100 theme-hover group"
                                             style={{ paddingLeft: indent }}
                                             title={`Line ${item.line}`}
                                         >
                                             {style?.icon && React.createElement(style.icon, { size: 11, style: { color: style.color }, className: 'flex-shrink-0 opacity-80 group-hover:opacity-100' })}
-                                            {isSection && !style && <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: isChapter ? '#c084fc' : 'rgba(255,255,255,0.15)' }} />}
-                                            <span className={`truncate text-[11px] ${isChapter ? 'font-semibold text-gray-200' : isSection ? 'text-gray-400 group-hover:text-gray-200' : 'text-gray-600 group-hover:text-gray-400'} ${item.kind === 'label' ? 'font-mono text-[10px]' : ''}`}
+                                            {isSection && !style && <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: isChapter ? '#c084fc' : isDarkMode ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.15)' }} />}
+                                            <span className={`truncate text-[11px] ${isChapter ? 'font-semibold theme-text-primary' : isSection ? 'theme-text-muted' : 'theme-text-muted'} ${item.kind === 'label' ? 'font-mono text-[10px]' : ''}`}
                                                 style={style?.color && !isSection ? { color: style.color } : undefined}
                                             >
                                                 {item.title}
                                             </span>
-                                            <span className="ml-auto text-[9px] text-gray-700 group-hover:text-gray-500 tabular-nums flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">{item.line}</span>
+                                            <span className="ml-auto text-[9px] theme-text-muted tabular-nums flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">{item.line}</span>
                                         </button>
                                     );
                                 })}
@@ -1702,16 +1821,15 @@ const LatexViewer = ({
                 {/* Editor */}
                 <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
                     {isCompiling && (
-                        <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-10 backdrop-blur-sm">
-                            <div className="rounded-2xl p-6 flex items-center gap-5 shadow-2xl border border-white/[0.08]"
-                                style={{ background: 'linear-gradient(135deg, #1e1f2e 0%, #232440 100%)' }}>
+                        <div className={`absolute inset-0 ${isDarkMode ? 'bg-black/60' : 'bg-white/60'} flex items-center justify-center z-10 backdrop-blur-sm`}>
+                            <div className="rounded-2xl p-6 flex items-center gap-5 shadow-2xl border theme-border theme-bg-secondary">
                                 <div className="relative">
                                     <Loader size={24} className="animate-spin text-blue-400" />
                                     <div className="absolute inset-0 rounded-full" style={{ background: 'radial-gradient(circle, rgba(96,165,250,0.15) 0%, transparent 70%)' }} />
                                 </div>
                                 <div>
-                                    <div className="text-sm font-semibold text-white">Compiling...</div>
-                                    <div className="text-[11px] text-gray-500 mt-0.5">Running pdflatex</div>
+                                    <div className="text-sm font-semibold theme-text-primary">Compiling...</div>
+                                    <div className="text-[11px] theme-text-muted mt-0.5">Running pdflatex</div>
                                 </div>
                             </div>
                         </div>
@@ -1725,23 +1843,18 @@ const LatexViewer = ({
                             basicSetup={false}
                             className="h-full"
                             style={{ height: '100%' }}
-                            initialState={paneData?._editorStateJSON ? {
-                                json: paneData._editorStateJSON,
-                                fields: { history: history() },
-                            } : undefined}
                         />
                     </div>
                 </div>
 
                 {/* Symbols panel */}
                 {showSymbols && (
-                    <div className="w-52 flex flex-col flex-shrink-0 overflow-hidden" style={{
-                        background: 'linear-gradient(180deg, #181925 0%, #14151d 100%)',
-                        borderLeft: '1px solid rgba(255,255,255,0.06)',
+                    <div className="w-52 flex flex-col flex-shrink-0 overflow-hidden theme-bg-secondary" style={{
+                        borderLeft: '1px solid var(--theme-border)',
                     }}>
-                        <div className="flex items-center gap-2 px-3 h-9 flex-shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                        <div className="flex items-center gap-2 px-3 h-9 flex-shrink-0" style={{ borderBottom: '1px solid var(--theme-border)' }}>
                             <Sigma size={11} className="text-blue-400/70" />
-                            <span className="text-[10px] font-semibold text-gray-300 tracking-wider uppercase">Symbols</span>
+                            <span className="text-[10px] font-semibold theme-text-primary tracking-wider uppercase">Symbols</span>
                         </div>
                         <div className="flex-1 overflow-y-auto p-2">
                             <div className="grid grid-cols-5 gap-0.5">
@@ -1749,11 +1862,11 @@ const LatexViewer = ({
                                     <button
                                         key={sym.cmd}
                                         onClick={() => insertAtCursor(sym.cmd)}
-                                        className="aspect-square flex items-center justify-center text-[15px] rounded-lg text-gray-400 transition-all duration-100"
+                                        className="aspect-square flex items-center justify-center text-[15px] rounded-lg theme-text-muted transition-all duration-100"
                                         style={{ }}
                                         title={sym.cmd}
-                                        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(96,165,250,0.1)'; e.currentTarget.style.color = '#93c5fd'; e.currentTarget.style.transform = 'scale(1.15)'; }}
-                                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#9ca3af'; e.currentTarget.style.transform = 'scale(1)'; }}
+                                        onMouseEnter={e => { e.currentTarget.style.background = isDarkMode ? 'rgba(96,165,250,0.1)' : 'rgba(37,99,235,0.08)'; e.currentTarget.style.color = isDarkMode ? '#93c5fd' : '#2563eb'; e.currentTarget.style.transform = 'scale(1.15)'; }}
+                                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = ''; e.currentTarget.style.transform = 'scale(1)'; }}
                                     >
                                         {sym.label}
                                     </button>
@@ -1766,46 +1879,45 @@ const LatexViewer = ({
 
             {/* Build log */}
             {showLog && (
-                <div className="flex flex-col flex-shrink-0" style={{
-                    background: 'linear-gradient(180deg, #151620 0%, #111218 100%)',
-                    borderTop: '1px solid rgba(255,255,255,0.06)',
+                <div className="flex flex-col flex-shrink-0 theme-bg-secondary" style={{
+                    borderTop: '1px solid var(--theme-border)',
                 }}>
-                    <div className="flex items-center justify-between px-3 h-8" style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                    <div className="flex items-center justify-between px-3 h-8" style={{ borderBottom: '1px solid var(--theme-border)' }}>
                         <div className="flex items-center gap-2.5">
-                            <Terminal size={12} className="text-gray-500" />
-                            <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Build Output</span>
+                            <Terminal size={12} className="theme-text-muted" />
+                            <span className="text-[10px] font-semibold theme-text-muted uppercase tracking-wider">Build Output</span>
                             {compileStatus === 'success' && (
                                 <span className="flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full"
-                                    style={{ background: 'rgba(52,211,153,0.1)', color: '#6ee7b7', border: '1px solid rgba(52,211,153,0.15)' }}>
+                                    style={{ background: 'rgba(52,211,153,0.1)', color: isDarkMode ? '#6ee7b7' : '#059669', border: '1px solid rgba(52,211,153,0.15)' }}>
                                     <CheckCircle size={10} /> OK
                                 </span>
                             )}
                             {compileStatus === 'error' && (
                                 <span className="flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full"
-                                    style={{ background: 'rgba(239,68,68,0.1)', color: '#fca5a5', border: '1px solid rgba(239,68,68,0.15)' }}>
+                                    style={{ background: 'rgba(239,68,68,0.1)', color: isDarkMode ? '#fca5a5' : '#dc2626', border: '1px solid rgba(239,68,68,0.15)' }}>
                                     <AlertCircle size={10} /> {parseErrors.length} {parseErrors.length === 1 ? 'error' : 'errors'}
                                 </span>
                             )}
                         </div>
-                        <button onClick={() => setShowLog(false)} className="w-5 h-5 flex items-center justify-center rounded-md hover:bg-white/[0.07] text-gray-500 hover:text-gray-300 transition-colors">
+                        <button onClick={() => setShowLog(false)} className="w-5 h-5 flex items-center justify-center rounded-md theme-hover theme-text-muted transition-colors">
                             <X size={11} />
                         </button>
                     </div>
                     <div className="max-h-28 overflow-auto px-3 py-2 font-mono text-[10px] leading-relaxed">
                         {compileLog ? (
-                            <pre className="whitespace-pre-wrap text-gray-500">{compileLog}</pre>
+                            <pre className="whitespace-pre-wrap theme-text-muted">{compileLog}</pre>
                         ) : (
-                            <div className="text-gray-600 py-1">Press <kbd className="px-1.5 py-0.5 rounded-md text-[9px] text-gray-400 font-medium" style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.06)' }}>Ctrl+Enter</kbd> to compile</div>
+                            <div className="theme-text-muted py-1">Press <kbd className="px-1.5 py-0.5 rounded-md text-[9px] theme-text-secondary font-medium" style={{ background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)', border: isDarkMode ? '1px solid rgba(255,255,255,0.06)' : '1px solid rgba(0,0,0,0.08)' }}>Ctrl+Enter</kbd> to compile</div>
                         )}
                     </div>
                     {parseErrors.length > 0 && (
-                        <div className="px-2 pb-2 space-y-1" style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+                        <div className="px-2 pb-2 space-y-1" style={{ borderTop: '1px solid var(--theme-border)' }}>
                             {parseErrors.slice(0, 5).map((err, i) => (
                                 <button
                                     key={i}
                                     onClick={() => goToLine(err.line)}
                                     className="w-full text-left px-2.5 py-1.5 text-[11px] rounded-lg flex items-center gap-2 transition-all duration-100"
-                                    style={{ background: 'rgba(239,68,68,0.08)', color: '#f87171', border: '1px solid rgba(239,68,68,0.08)' }}
+                                    style={{ background: 'rgba(239,68,68,0.08)', color: isDarkMode ? '#f87171' : '#dc2626', border: '1px solid rgba(239,68,68,0.08)' }}
                                     onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.14)'; e.currentTarget.style.borderColor = 'rgba(239,68,68,0.2)'; }}
                                     onMouseLeave={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.08)'; e.currentTarget.style.borderColor = 'rgba(239,68,68,0.08)'; }}
                                 >
@@ -1820,26 +1932,25 @@ const LatexViewer = ({
             )}
 
             {/* Status bar */}
-            <div className="flex items-center justify-between px-3 h-6 flex-shrink-0 text-[10px]" style={{
-                background: 'linear-gradient(90deg, #111218 0%, #13141e 100%)',
-                borderTop: '1px solid rgba(255,255,255,0.04)',
+            <div className="flex items-center justify-between px-3 h-6 flex-shrink-0 text-[10px] theme-bg-secondary" style={{
+                borderTop: '1px solid var(--theme-border)',
             }}>
                 <div className="flex items-center gap-2">
                     {error && <span className="text-red-400 truncate max-w-[200px] flex items-center gap-1"><AlertCircle size={10} /> {error}</span>}
                     {!error && hasChanges && (
-                        <span className="text-amber-400/90 flex items-center gap-1.5">
-                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                        <span className={`${isDarkMode ? 'text-amber-400/90' : 'text-amber-600'} flex items-center gap-1.5`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${isDarkMode ? 'bg-amber-400' : 'bg-amber-500'} animate-pulse`} />
                             Modified
                         </span>
                     )}
                     {!error && !hasChanges && (
-                        <span className="text-emerald-400/60 flex items-center gap-1.5">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400/60" />
+                        <span className={`${showSavedFlash ? (isDarkMode ? 'text-emerald-400' : 'text-emerald-600') : (isDarkMode ? 'text-emerald-400/60' : 'text-emerald-600/60')} flex items-center gap-1.5 transition-colors duration-300`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${showSavedFlash ? (isDarkMode ? 'bg-emerald-400' : 'bg-emerald-500') : (isDarkMode ? 'bg-emerald-400/60' : 'bg-emerald-500/60')} transition-colors duration-300`} />
                             Saved
                         </span>
                     )}
                 </div>
-                <div className="flex items-center gap-2 text-gray-600">
+                <div className="flex items-center gap-2 theme-text-muted">
                     {[
                         ['Ctrl+S', 'save'],
                         ['Ctrl+Enter', 'build'],
@@ -1847,8 +1958,8 @@ const LatexViewer = ({
                         ['Ctrl+B', 'bold'],
                     ].map(([key, label]) => (
                         <span key={label} className="flex items-center gap-0.5">
-                            <kbd className="px-1 py-px rounded text-[9px] text-gray-500/80 font-mono" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.04)' }}>{key}</kbd>
-                            <span className="text-gray-600/70 text-[9px]">{label}</span>
+                            <kbd className="px-1 py-px rounded text-[9px] theme-text-muted font-mono" style={{ background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)', border: isDarkMode ? '1px solid rgba(255,255,255,0.04)' : '1px solid rgba(0,0,0,0.06)' }}>{key}</kbd>
+                            <span className="opacity-70 text-[9px]">{label}</span>
                         </span>
                     ))}
                 </div>

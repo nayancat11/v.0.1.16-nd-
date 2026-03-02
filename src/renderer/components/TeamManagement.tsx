@@ -784,7 +784,7 @@ LIMIT 10
                 {/* Syntax reference */}
                 <div className="theme-bg-tertiary p-3 rounded-lg text-xs">
                     <div className="font-semibold mb-2 text-purple-400">NQL Functions (llm_funcs.py):</div>
-                    <div className="grid grid-cols-4 gap-1 font-mono text-gray-400 mb-2">
+                    <div className="grid grid-cols-4 gap-1 font-mono theme-text-muted mb-2">
                         <div><span className="text-blue-400">get_llm_response</span></div>
                         <div><span className="text-blue-400">extract_facts</span></div>
                         <div><span className="text-blue-400">get_facts</span></div>
@@ -798,7 +798,7 @@ LIMIT 10
                         <div><span className="text-cyan-400">bootstrap</span></div>
                         <div><span className="text-cyan-400">zoom_in</span></div>
                     </div>
-                    <div className="border-t border-gray-700 pt-2 space-y-1 font-mono text-gray-500">
+                    <div className="border-t theme-border pt-2 space-y-1 font-mono text-gray-500">
                         <div><code className="text-blue-300">nql.get_llm_response(CONCAT('Prompt: ', col), 'npc')</code></div>
                         <div><code className="text-blue-300">nql.extract_facts(text_col, 'npc')</code></div>
                         <div><code className="text-yellow-400">{"{{ ref('table_name') }}"}</code> <code className="text-pink-400">{"{{ config(materialized='table') }}"}</code></div>
@@ -925,7 +925,7 @@ LIMIT 10
                                 </div>
                             </div>
                             {/* Show SQL preview */}
-                            <div className="mt-2 bg-black/30 rounded p-2 font-mono text-xs text-gray-400 max-h-20 overflow-hidden">
+                            <div className="mt-2 theme-bg-tertiary rounded p-2 font-mono text-xs theme-text-muted max-h-20 overflow-hidden">
                                 {model.sql?.substring(0, 200)}...
                             </div>
                         </div>
@@ -1163,7 +1163,7 @@ const McpServersContent = ({ currentPath, isGlobal }: { currentPath: string; isG
                 <div className="theme-bg-tertiary p-4 rounded-lg space-y-4">
                     <div className="flex items-center justify-between">
                         <h4 className="font-semibold flex items-center gap-2"><Mail size={18} className="text-blue-400" /> Email Integration</h4>
-                        <button onClick={() => setShowEmailSetup(false)} className="text-gray-400 hover:text-white"><X size={18} /></button>
+                        <button onClick={() => setShowEmailSetup(false)} className="theme-text-muted hover:text-white"><X size={18} /></button>
                     </div>
 
                     <div>
@@ -1365,11 +1365,11 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                 </div>
                 <div className="flex items-center gap-3">
                     {/* Project/Global Toggle */}
-                    <div className="flex items-center bg-gray-800 rounded-lg p-1">
+                    <div className="flex items-center theme-bg-secondary rounded-lg p-1">
                         {hasProjectTeam ? (
                             <button
                                 onClick={() => setIsGlobal(false)}
-                                className={`px-3 py-1.5 rounded text-sm font-medium transition ${!isGlobal ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white'}`}
+                                className={`px-3 py-1.5 rounded text-sm font-medium transition ${!isGlobal ? 'bg-purple-600 text-white' : 'theme-text-muted hover:text-white'}`}
                             >
                                 Project
                             </button>
@@ -1377,7 +1377,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                             <button
                                 onClick={handleInitializeProjectTeam}
                                 disabled={initializingTeam || !currentPath}
-                                className="px-3 py-1.5 rounded text-sm font-medium transition text-gray-400 hover:text-white flex items-center gap-1 disabled:opacity-50"
+                                className="px-3 py-1.5 rounded text-sm font-medium transition theme-text-muted hover:text-white flex items-center gap-1 disabled:opacity-50"
                                 title={currentPath ? "Initialize project team" : "No project folder selected"}
                             >
                                 <Plus size={14} /> Project
@@ -1385,7 +1385,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                         )}
                         <button
                             onClick={() => setIsGlobal(true)}
-                            className={`px-3 py-1.5 rounded text-sm font-medium transition ${isGlobal ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white'}`}
+                            className={`px-3 py-1.5 rounded text-sm font-medium transition ${isGlobal ? 'bg-purple-600 text-white' : 'theme-text-muted hover:text-white'}`}
                         >
                             Global
                         </button>
@@ -1420,16 +1420,16 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                     ))}
                 </div>
                 {isGlobal && (
-                    <div className="flex items-center bg-gray-800 rounded-lg p-0.5">
+                    <div className="flex items-center theme-bg-secondary rounded-lg p-0.5">
                         <button
                             onClick={() => setGlobalSource('incognide')}
-                            className={`px-2.5 py-1 rounded text-xs font-medium transition ${globalSource === 'incognide' ? 'bg-amber-600 text-white' : 'text-gray-400 hover:text-white'}`}
+                            className={`px-2.5 py-1 rounded text-xs font-medium transition ${globalSource === 'incognide' ? 'bg-amber-600 text-white' : 'theme-text-muted hover:text-white'}`}
                         >
                             Incognide
                         </button>
                         <button
                             onClick={() => setGlobalSource('npcsh')}
-                            className={`px-2.5 py-1 rounded text-xs font-medium transition ${globalSource === 'npcsh' ? 'bg-green-600 text-white' : 'text-gray-400 hover:text-white'}`}
+                            className={`px-2.5 py-1 rounded text-xs font-medium transition ${globalSource === 'npcsh' ? 'bg-green-600 text-white' : 'theme-text-muted hover:text-white'}`}
                         >
                             npcsh
                         </button>
@@ -1456,7 +1456,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                                 <NPCTeamSync globalPath={globalPath} />
                                 <button
                                     onClick={() => setResyncModal(true)}
-                                    className="px-3 py-1.5 rounded text-sm font-medium bg-gray-700 hover:bg-gray-600 text-gray-300 transition flex items-center gap-1"
+                                    className="px-3 py-1.5 rounded text-sm font-medium theme-bg-tertiary theme-hover theme-text-secondary transition flex items-center gap-1"
                                     title="Re-sync global team from package defaults"
                                 >
                                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 21h5v-5"/></svg>
@@ -1656,7 +1656,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                                                 className={`rounded-lg border transition-all ${
                                                     npc.enabled
                                                         ? 'theme-bg-secondary theme-border'
-                                                        : 'bg-gray-800/30 border-gray-700/50 opacity-60'
+                                                        : 'theme-bg-secondary/30 theme-border opacity-60'
                                                 }`}
                                             >
                                                 <div className="p-3 flex items-start gap-3">
@@ -1723,7 +1723,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                                                         <div className="flex items-center gap-1">
                                                             <button
                                                                 onClick={() => setEditingNpc(i)}
-                                                                className="p-1.5 theme-hover rounded text-gray-400 hover:text-white"
+                                                                className="p-1.5 theme-hover rounded theme-text-muted hover:text-white"
                                                                 title="Edit"
                                                             >
                                                                 <Wrench size={14} />
@@ -1791,7 +1791,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                                                 className={`rounded-lg border p-2 flex items-center gap-2 transition-all ${
                                                     jinx.enabled
                                                         ? 'theme-bg-secondary theme-border'
-                                                        : 'bg-gray-800/30 border-gray-700/50 opacity-60'
+                                                        : 'theme-bg-secondary/30 theme-border opacity-60'
                                                 }`}
                                             >
                                                 <button

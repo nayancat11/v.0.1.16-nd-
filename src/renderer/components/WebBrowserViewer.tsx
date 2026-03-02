@@ -306,6 +306,13 @@ const WebBrowserViewer = memo(({
             };
 
             // Execute arbitrary JavaScript (for advanced automation)
+            contentDataRef.current[nodeId].triggerFind = () => {
+                setShowFindBar(true);
+                setTimeout(() => {
+                    findInputRef.current?.focus();
+                    findInputRef.current?.select();
+                }, 50);
+            };
             contentDataRef.current[nodeId].browserEval = async (code: string) => {
                 const webview = webviewRef.current;
                 if (!webview) return { success: false, error: 'Webview not available' };
@@ -566,6 +573,40 @@ const WebBrowserViewer = memo(({
     // The initial URL is captured in a ref and only used once
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [currentPath, viewId, nodeId, setBrowserContextMenuPos, setRootLayoutNode]);
+
+    // Intercept Ctrl+F from inside the webview via dom-ready -> webContents before-input-event
+    useEffect(() => {
+        const webview = webviewRef.current as any;
+        if (!webview) return;
+        let cleanup: (() => void) | null = null;
+        const handleDomReady = () => {
+            try {
+                const wc = webview.getWebContents?.();
+                if (!wc) return;
+                const handler = (_event: any, input: any) => {
+                    const isMod = input.modifiers?.includes('control') || input.modifiers?.includes('meta');
+                    if (isMod && input.key?.toLowerCase() === 'f' && input.type === 'keyDown') {
+                        _event.preventDefault();
+                        setShowFindBar(true);
+                        setTimeout(() => {
+                            findInputRef.current?.focus();
+                            findInputRef.current?.select();
+                        }, 50);
+                    }
+                };
+                wc.on('before-input-event', handler);
+                cleanup = () => wc.removeListener('before-input-event', handler);
+            } catch (err) {
+                // getWebContents may not be available in all Electron versions
+                console.warn('[WebBrowser] Could not attach before-input-event:', err);
+            }
+        };
+        webview.addEventListener('dom-ready', handleDomReady);
+        return () => {
+            webview.removeEventListener('dom-ready', handleDomReady);
+            cleanup?.();
+        };
+    }, []);
 
     // Effect to handle tab switching - navigate when paneData.browserUrl changes externally
     // This should ONLY trigger when switching between tabs within this pane that have different URLs
@@ -1462,7 +1503,7 @@ const WebBrowserViewer = memo(({
                         </div>
                         {showRefreshMenu && (
                             <>
-                                <div className="fixed inset-0 z-40" onClick={() => setShowRefreshMenu(false)} />
+                                <div className="fixed inset-0 z-40 bg-transparent" onMouseDown={() => setShowRefreshMenu(false)} />
                                 <div className="absolute top-full left-0 mt-1 z-50 theme-bg-secondary border theme-border rounded shadow-lg py-1 min-w-[160px]">
                                     <button
                                         onClick={() => { handleRefresh(); setShowRefreshMenu(false); }}
@@ -1507,7 +1548,7 @@ const WebBrowserViewer = memo(({
                             </button>
                             {showPasswordFill && (
                                 <>
-                                    <div className="fixed inset-0 z-40" onClick={() => setShowPasswordFill(false)} />
+                                    <div className="fixed inset-0 z-40 bg-transparent" onMouseDown={() => setShowPasswordFill(false)} />
                                     <div className="absolute right-0 top-full mt-1 theme-bg-secondary border theme-border rounded-lg shadow-lg z-50 min-w-[220px]">
                                         <div className="p-2 border-b theme-border">
                                             <span className="text-xs font-medium theme-text-primary">Auto-fill Credentials</span>
@@ -1542,7 +1583,7 @@ const WebBrowserViewer = memo(({
                         </button>
                         {showPermissionsMenu && (
                             <>
-                                <div className="fixed inset-0 z-40" onClick={() => setShowPermissionsMenu(false)} />
+                                <div className="fixed inset-0 z-40 bg-transparent" onMouseDown={() => setShowPermissionsMenu(false)} />
                                 <div className="absolute right-0 top-full mt-1 theme-bg-secondary border theme-border rounded-lg shadow-lg z-50 min-w-[250px]">
                                     <div className="p-2 border-b theme-border">
                                         <span className="text-xs font-medium theme-text-primary">Permissions for {getSiteFromUrl(currentUrl)}</span>
@@ -1583,7 +1624,7 @@ const WebBrowserViewer = memo(({
                         </button>
                         {showPasswordsMenu && (
                             <>
-                                <div className="fixed inset-0 z-40" onClick={() => setShowPasswordsMenu(false)} />
+                                <div className="fixed inset-0 z-40 bg-transparent" onMouseDown={() => setShowPasswordsMenu(false)} />
                                 <div className="absolute right-0 top-full mt-1 theme-bg-secondary border theme-border rounded-lg shadow-lg z-50 min-w-[280px] max-h-[400px] overflow-auto">
                                     <div className="p-2 border-b theme-border">
                                         <span className="text-xs font-medium theme-text-primary">Saved Passwords</span>
@@ -1631,7 +1672,7 @@ const WebBrowserViewer = memo(({
                         <button onClick={() => { setShowExtensionsMenu(!showExtensionsMenu); setShowSessionMenu(false); setShowPasswordsMenu(false); setShowPermissionsMenu(false); setShowRefreshMenu(false); }} className={`p-1 theme-hover rounded ${extensions.length > 0 ? 'text-purple-400' : ''}`} title="Extensions"><Puzzle size={16} /></button>
                         {showExtensionsMenu && (
                             <>
-                                <div className="fixed inset-0 z-40" onClick={() => setShowExtensionsMenu(false)} />
+                                <div className="fixed inset-0 z-40 bg-transparent" onMouseDown={() => setShowExtensionsMenu(false)} />
                                 <div className="absolute right-0 top-full mt-1 theme-bg-secondary border theme-border rounded-lg shadow-lg z-50 min-w-[280px] max-h-[400px] overflow-auto">
                                     <div className="p-2 border-b theme-border flex items-center justify-between">
                                         <span className="text-xs font-medium theme-text-primary">Extensions</span>
@@ -1683,7 +1724,7 @@ const WebBrowserViewer = memo(({
                         <button onClick={() => { setShowSessionMenu(!showSessionMenu); setShowExtensionsMenu(false); setShowRefreshMenu(false); }} className="p-1 theme-hover rounded" title="Settings"><Settings size={16} /></button>
                         {showSessionMenu && (
                             <>
-                                <div className="fixed inset-0 z-40" onClick={() => setShowSessionMenu(false)} />
+                                <div className="fixed inset-0 z-40 bg-transparent" onMouseDown={() => setShowSessionMenu(false)} />
                                 <div className="absolute right-0 top-full mt-1 theme-bg-secondary border theme-border rounded-lg shadow-lg z-50 min-w-[200px]">
                                     <div className="p-2 border-b theme-border">
                                         <span className="text-xs theme-text-muted block mb-1">Search Engine</span>
@@ -1860,7 +1901,7 @@ const WebBrowserViewer = memo(({
                     allowpopups="true"
                     allowusermedia="true"
                     webpreferences="contextIsolation=no, javascript=yes, webSecurity=yes, allowRunningInsecureContent=no, spellcheck=yes, enableRemoteModule=no"
-                    style={{ visibility: error ? 'hidden' : 'visible' }}
+                    style={{ visibility: error ? 'hidden' : 'visible', backgroundColor: '#ffffff' }}
                 />
 
                 {/* Overlay to block webview interaction during layout resize/drag */}

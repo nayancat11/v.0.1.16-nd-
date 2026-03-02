@@ -1,5 +1,5 @@
-import React from 'react';
-import { RefreshCw } from 'lucide-react';
+import React, { useState } from 'react';
+import { RefreshCw, GitBranch, RotateCcw, Cherry, AlertTriangle } from 'lucide-react';
 
 interface GitPaneProps {
     nodeId: string;
@@ -24,6 +24,7 @@ interface GitPaneProps {
     loadGitHistory: () => void;
     loadCommitDetails: (hash: string) => void;
     gitStageFile: (file: string) => void;
+    gitDiscardFile: (file: string) => void;
     gitUnstageFile: (file: string) => void;
     gitCommitChanges: () => void;
     gitPushChanges: () => void;
@@ -37,6 +38,12 @@ interface GitPaneProps {
     pushRejectedPrompt: boolean;
     setPushRejectedPrompt: (v: boolean) => void;
     openFileDiffPane: (filePath: string, status: string) => void;
+    gitCherryPick: (commitHash: string) => Promise<any>;
+    gitCherryPickAbort: () => void;
+    gitCherryPickContinue: () => void;
+    gitRevertCommit: (commitHash: string) => Promise<any>;
+    gitResetToCommit: (commitHash: string, mode?: 'soft' | 'mixed' | 'hard') => Promise<any>;
+    gitLogBranch: (branchName: string) => Promise<any[]>;
 }
 
 const GitPane: React.FC<GitPaneProps> = React.memo(({
@@ -62,6 +69,7 @@ const GitPane: React.FC<GitPaneProps> = React.memo(({
     loadGitHistory,
     loadCommitDetails,
     gitStageFile,
+    gitDiscardFile,
     gitUnstageFile,
     gitCommitChanges,
     gitPushChanges,
@@ -75,7 +83,59 @@ const GitPane: React.FC<GitPaneProps> = React.memo(({
     pushRejectedPrompt,
     setPushRejectedPrompt,
     openFileDiffPane,
+    gitCherryPick,
+    gitCherryPickAbort,
+    gitCherryPickContinue,
+    gitRevertCommit,
+    gitResetToCommit,
+    gitLogBranch,
 }) => {
+    const [resetConfirm, setResetConfirm] = useState<{ hash: string; mode: 'soft' | 'mixed' | 'hard' } | null>(null);
+    const [actionFeedback, setActionFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+    const [cherryPickSource, setCherryPickSource] = useState<string | null>(null);
+    const [cherryPickSourceCommits, setCherryPickSourceCommits] = useState<any[]>([]);
+
+    const showFeedback = (type: 'success' | 'error', message: string) => {
+        setActionFeedback({ type, message });
+        setTimeout(() => setActionFeedback(null), 3000);
+    };
+
+    const handleCherryPick = async (hash: string) => {
+        const result = await gitCherryPick(hash);
+        if (result?.success) {
+            showFeedback('success', `Cherry-picked ${hash.slice(0, 7)}`);
+        } else if (result?.conflict) {
+            showFeedback('error', 'Cherry-pick has conflicts — resolve them, then continue or abort.');
+        } else {
+            showFeedback('error', result?.error || 'Cherry-pick failed');
+        }
+    };
+
+    const handleRevert = async (hash: string) => {
+        const result = await gitRevertCommit(hash);
+        if (result?.success) {
+            showFeedback('success', `Reverted ${hash.slice(0, 7)}`);
+        } else {
+            showFeedback('error', result?.error || 'Revert failed');
+        }
+    };
+
+    const handleReset = async () => {
+        if (!resetConfirm) return;
+        const result = await gitResetToCommit(resetConfirm.hash, resetConfirm.mode);
+        if (result?.success) {
+            showFeedback('success', `Reset (${resetConfirm.mode}) to ${resetConfirm.hash.slice(0, 7)}`);
+        } else {
+            showFeedback('error', result?.error || 'Reset failed');
+        }
+        setResetConfirm(null);
+    };
+
+    const loadBranchForCherryPick = async (branchName: string) => {
+        setCherryPickSource(branchName);
+        const commits = await gitLogBranch(branchName);
+        setCherryPickSourceCommits(commits);
+    };
     return (
         <div className="flex flex-col h-full theme-bg-primary overflow-hidden">
             {/* Header */}
@@ -104,7 +164,7 @@ const GitPane: React.FC<GitPaneProps> = React.memo(({
                             setGitModalTab(tab);
                             if (tab === 'diff') loadGitDiff();
                             if (tab === 'branches') loadGitBranches();
-                            if (tab === 'history') loadGitHistory();
+                            if (tab === 'history') { loadGitHistory(); loadGitBranches(); }
                         }}
                         className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
                             gitModalTab === tab
@@ -153,7 +213,10 @@ const GitPane: React.FC<GitPaneProps> = React.memo(({
                                                     {file.path}
                                                 </button>
                                             </div>
-                                            <button onClick={() => gitStageFile(file.path)} className="text-green-400 hover:text-green-300 px-2 opacity-0 group-hover:opacity-100 flex-shrink-0">Stage</button>
+                                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 flex-shrink-0">
+                                                <button onClick={() => gitStageFile(file.path)} className="text-green-400 hover:text-green-300 px-1.5" title="Stage file">Stage</button>
+                                                <button onClick={() => { if (confirm(`Discard changes to ${file.path}?`)) gitDiscardFile(file.path); }} className="text-red-400 hover:text-red-300 px-1.5" title="Discard changes">Discard</button>
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
@@ -349,72 +412,214 @@ const GitPane: React.FC<GitPaneProps> = React.memo(({
                     </div>
                 ) : gitModalTab === 'history' ? (
                     /* History Tab */
-                    <div className="flex gap-4 h-full min-h-[400px]">
-                        {/* Commit List */}
-                        <div className="w-1/2 theme-bg-secondary rounded-lg p-3 flex flex-col">
-                            <div className="flex items-center justify-between mb-2">
-                                <span className="text-xs font-medium theme-text-muted">Commits</span>
-                                <button onClick={loadGitHistory} className="text-xs theme-text-muted hover:theme-text-primary">
-                                    <RefreshCw size={12} />
-                                </button>
-                            </div>
-                            <div className="flex-1 overflow-y-auto space-y-1">
-                                {gitCommitHistory?.length > 0 ? gitCommitHistory.map((commit: any) => (
-                                    <button
-                                        key={commit.hash}
-                                        onClick={() => loadCommitDetails(commit.hash)}
-                                        className={`w-full text-left p-2 rounded text-xs hover:bg-white/5 transition-colors ${
-                                            gitSelectedCommit?.hash === commit.hash ? 'bg-purple-900/30 border border-purple-500/30' : ''
-                                        }`}
-                                    >
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-purple-400 font-mono">{commit.hash?.slice(0, 7)}</span>
-                                            <span className="theme-text-muted">{new Date(commit.date).toLocaleDateString()}</span>
-                                        </div>
-                                        <div className="theme-text-primary truncate mt-1">{commit.message}</div>
-                                        <div className="theme-text-muted mt-0.5">{commit.author_name || commit.author}</div>
-                                    </button>
-                                )) : (
-                                    <div className="text-center theme-text-muted py-4">No commits</div>
+                    <div className="flex flex-col gap-3 h-full min-h-[400px]">
+                        {/* Feedback Banner */}
+                        {actionFeedback && (
+                            <div className={`px-3 py-2 rounded text-xs flex items-center gap-2 ${
+                                actionFeedback.type === 'success' ? 'bg-green-900/40 text-green-400 border border-green-500/30' : 'bg-red-900/40 text-red-400 border border-red-500/30'
+                            }`}>
+                                {actionFeedback.type === 'error' && <AlertTriangle size={12} />}
+                                {actionFeedback.message}
+                                {actionFeedback.type === 'error' && actionFeedback.message.includes('conflict') && (
+                                    <div className="flex gap-2 ml-auto">
+                                        <button onClick={gitCherryPickContinue} className="px-2 py-0.5 bg-green-600 hover:bg-green-500 rounded text-white text-[10px]">Continue</button>
+                                        <button onClick={gitCherryPickAbort} className="px-2 py-0.5 bg-red-600 hover:bg-red-500 rounded text-white text-[10px]">Abort</button>
+                                    </div>
                                 )}
                             </div>
-                        </div>
+                        )}
 
-                        {/* Commit Details */}
-                        <div className="w-1/2 theme-bg-secondary rounded-lg p-3 flex flex-col">
-                            <span className="text-xs font-medium theme-text-muted mb-2">Details</span>
-                            {gitSelectedCommit ? (
-                                <div className="flex-1 overflow-y-auto">
-                                    <div className="space-y-1 text-xs mb-3 pb-3 border-b theme-border">
-                                        <div className="font-mono text-purple-400">{gitSelectedCommit.hash}</div>
-                                        <div className="theme-text-primary">{gitSelectedCommit.author_name} &lt;{gitSelectedCommit.author_email}&gt;</div>
-                                        <div className="theme-text-muted">{new Date(gitSelectedCommit.date).toLocaleString()}</div>
-                                        <div className="theme-text-primary mt-2 whitespace-pre-wrap">{gitSelectedCommit.message}</div>
-                                    </div>
-                                    {gitSelectedCommit.diff && (
-                                        <pre className="text-xs font-mono overflow-auto p-2 bg-black/30 rounded whitespace-pre-wrap">
-                                            {gitSelectedCommit.diff.split('\n').map((line: string, i: number) => (
-                                                <div
-                                                    key={i}
-                                                    className={
-                                                        line.startsWith('+') && !line.startsWith('+++') ? 'text-green-400 bg-green-900/20' :
-                                                        line.startsWith('-') && !line.startsWith('---') ? 'text-red-400 bg-red-900/20' :
-                                                        line.startsWith('@@') ? 'text-cyan-400' :
-                                                        line.startsWith('diff ') ? 'text-purple-400 font-bold mt-2' :
-                                                        'theme-text-muted'
-                                                    }
-                                                >
-                                                    {line}
-                                                </div>
-                                            ))}
-                                        </pre>
-                                    )}
+                        {/* Reset Confirmation Dialog */}
+                        {resetConfirm && (
+                            <div className="px-3 py-2 rounded text-xs bg-amber-900/40 border border-amber-500/30">
+                                <div className="flex items-center gap-2 text-amber-400 mb-2">
+                                    <AlertTriangle size={12} />
+                                    Reset to <span className="font-mono">{resetConfirm.hash.slice(0, 7)}</span> ({resetConfirm.mode})?
+                                    {resetConfirm.mode === 'hard' && <span className="text-red-400 font-medium">This will discard all changes!</span>}
                                 </div>
-                            ) : (
-                                <div className="flex-1 flex items-center justify-center theme-text-muted text-sm">
-                                    Select a commit to view details
+                                <div className="flex items-center gap-2">
+                                    <select
+                                        value={resetConfirm.mode}
+                                        onChange={(e) => setResetConfirm({ ...resetConfirm, mode: e.target.value as 'soft' | 'mixed' | 'hard' })}
+                                        className="text-[10px] px-1.5 py-0.5 theme-bg-primary border theme-border rounded"
+                                    >
+                                        <option value="soft">Soft (keep staged)</option>
+                                        <option value="mixed">Mixed (unstage, keep files)</option>
+                                        <option value="hard">Hard (discard everything)</option>
+                                    </select>
+                                    <button onClick={handleReset} className={`px-2 py-0.5 rounded text-white text-[10px] ${resetConfirm.mode === 'hard' ? 'bg-red-600 hover:bg-red-500' : 'bg-amber-600 hover:bg-amber-500'}`}>
+                                        Confirm Reset
+                                    </button>
+                                    <button onClick={() => setResetConfirm(null)} className="px-2 py-0.5 bg-gray-600 hover:bg-gray-500 rounded text-white text-[10px]">Cancel</button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Cherry-pick from another branch */}
+                        <div className="theme-bg-secondary rounded-lg p-2">
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs font-medium theme-text-muted flex items-center gap-1">
+                                    <Cherry size={11} className="text-pink-400" /> Cherry-pick from:
+                                </span>
+                                <select
+                                    value={cherryPickSource || ''}
+                                    onChange={(e) => e.target.value ? loadBranchForCherryPick(e.target.value) : (setCherryPickSource(null), setCherryPickSourceCommits([]))}
+                                    className="text-xs px-2 py-1 theme-bg-primary border theme-border rounded flex-1"
+                                >
+                                    <option value="">Current branch</option>
+                                    {gitBranches?.all?.filter((b: string) => !b.startsWith('remotes/') && b !== gitBranches.current).map((b: string) => (
+                                        <option key={b} value={b}>{b}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            {cherryPickSource && cherryPickSourceCommits.length > 0 && (
+                                <div className="mt-2 max-h-32 overflow-y-auto space-y-1">
+                                    {cherryPickSourceCommits.map((commit: any) => (
+                                        <div key={commit.hash} className="flex items-center justify-between text-xs p-1.5 rounded hover:bg-white/5 group">
+                                            <div className="flex-1 min-w-0">
+                                                <span className="text-purple-400 font-mono mr-2">{commit.hash?.slice(0, 7)}</span>
+                                                <span className="theme-text-primary truncate">{commit.message}</span>
+                                            </div>
+                                            <button
+                                                onClick={() => handleCherryPick(commit.hash)}
+                                                disabled={gitLoading}
+                                                className="flex-shrink-0 px-2 py-0.5 text-[10px] bg-pink-600 hover:bg-pink-500 disabled:opacity-50 rounded text-white opacity-0 group-hover:opacity-100"
+                                                title="Cherry-pick this commit"
+                                            >
+                                                Pick
+                                            </button>
+                                        </div>
+                                    ))}
                                 </div>
                             )}
+                        </div>
+
+                        <div className="flex gap-4 flex-1 min-h-0">
+                            {/* Commit List */}
+                            <div className="w-1/2 theme-bg-secondary rounded-lg p-3 flex flex-col">
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="text-xs font-medium theme-text-muted">Commits</span>
+                                    <button onClick={loadGitHistory} className="text-xs theme-text-muted hover:theme-text-primary">
+                                        <RefreshCw size={12} />
+                                    </button>
+                                </div>
+                                <div className="flex-1 overflow-y-auto space-y-1">
+                                    {gitCommitHistory?.length > 0 ? gitCommitHistory.map((commit: any, idx: number) => (
+                                        <div
+                                            key={commit.hash}
+                                            className={`relative p-2 rounded text-xs hover:bg-white/5 transition-colors group ${
+                                                gitSelectedCommit?.hash === commit.hash ? 'bg-purple-900/30 border border-purple-500/30' : ''
+                                            }`}
+                                        >
+                                            <button
+                                                onClick={() => loadCommitDetails(commit.hash)}
+                                                className="w-full text-left"
+                                            >
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-purple-400 font-mono">{commit.hash?.slice(0, 7)}</span>
+                                                    <span className="theme-text-muted">{new Date(commit.date).toLocaleDateString()}</span>
+                                                </div>
+                                                <div className="theme-text-primary truncate mt-1 pr-20">{commit.message}</div>
+                                                <div className="theme-text-muted mt-0.5">{commit.author_name || commit.author}</div>
+                                            </button>
+                                            {/* Hover action buttons */}
+                                            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                {idx > 0 && (
+                                                    <>
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); handleCherryPick(commit.hash); }}
+                                                            disabled={gitLoading}
+                                                            className="px-1.5 py-0.5 text-[10px] bg-pink-600/80 hover:bg-pink-500 disabled:opacity-50 rounded text-white"
+                                                            title="Cherry-pick this commit"
+                                                        >
+                                                            Pick
+                                                        </button>
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); handleRevert(commit.hash); }}
+                                                            disabled={gitLoading}
+                                                            className="px-1.5 py-0.5 text-[10px] bg-amber-600/80 hover:bg-amber-500 disabled:opacity-50 rounded text-white"
+                                                            title="Revert this commit"
+                                                        >
+                                                            Revert
+                                                        </button>
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); setResetConfirm({ hash: commit.hash, mode: 'mixed' }); }}
+                                                            disabled={gitLoading}
+                                                            className="px-1.5 py-0.5 text-[10px] bg-red-600/80 hover:bg-red-500 disabled:opacity-50 rounded text-white"
+                                                            title="Reset to this commit"
+                                                        >
+                                                            Reset
+                                                        </button>
+                                                    </>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )) : (
+                                        <div className="text-center theme-text-muted py-4">No commits</div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Commit Details */}
+                            <div className="w-1/2 theme-bg-secondary rounded-lg p-3 flex flex-col">
+                                <span className="text-xs font-medium theme-text-muted mb-2">Details</span>
+                                {gitSelectedCommit ? (
+                                    <div className="flex-1 overflow-y-auto">
+                                        <div className="space-y-1 text-xs mb-3 pb-3 border-b theme-border">
+                                            <div className="font-mono text-purple-400">{gitSelectedCommit.hash}</div>
+                                            <div className="theme-text-primary">{gitSelectedCommit.author_name} &lt;{gitSelectedCommit.author_email}&gt;</div>
+                                            <div className="theme-text-muted">{new Date(gitSelectedCommit.date).toLocaleString()}</div>
+                                            <div className="theme-text-primary mt-2 whitespace-pre-wrap">{gitSelectedCommit.message}</div>
+                                        </div>
+                                        {/* Action buttons */}
+                                        <div className="flex flex-wrap gap-1.5 mb-3 pb-3 border-b theme-border">
+                                            <button
+                                                onClick={() => handleCherryPick(gitSelectedCommit.hash)}
+                                                disabled={gitLoading}
+                                                className="flex items-center gap-1 px-2 py-1 text-[11px] bg-pink-600 hover:bg-pink-500 disabled:opacity-50 rounded text-white"
+                                            >
+                                                <Cherry size={10} /> Cherry-pick
+                                            </button>
+                                            <button
+                                                onClick={() => handleRevert(gitSelectedCommit.hash)}
+                                                disabled={gitLoading}
+                                                className="flex items-center gap-1 px-2 py-1 text-[11px] bg-amber-600 hover:bg-amber-500 disabled:opacity-50 rounded text-white"
+                                            >
+                                                <RotateCcw size={10} /> Revert
+                                            </button>
+                                            <button
+                                                onClick={() => setResetConfirm({ hash: gitSelectedCommit.hash, mode: 'mixed' })}
+                                                disabled={gitLoading}
+                                                className="flex items-center gap-1 px-2 py-1 text-[11px] bg-red-600 hover:bg-red-500 disabled:opacity-50 rounded text-white"
+                                            >
+                                                <GitBranch size={10} /> Reset to here
+                                            </button>
+                                        </div>
+                                        {gitSelectedCommit.diff && (
+                                            <pre className="text-xs font-mono overflow-auto p-2 bg-black/30 rounded whitespace-pre-wrap">
+                                                {gitSelectedCommit.diff.split('\n').map((line: string, i: number) => (
+                                                    <div
+                                                        key={i}
+                                                        className={
+                                                            line.startsWith('+') && !line.startsWith('+++') ? 'text-green-400 bg-green-900/20' :
+                                                            line.startsWith('-') && !line.startsWith('---') ? 'text-red-400 bg-red-900/20' :
+                                                            line.startsWith('@@') ? 'text-cyan-400' :
+                                                            line.startsWith('diff ') ? 'text-purple-400 font-bold mt-2' :
+                                                            'theme-text-muted'
+                                                        }
+                                                    >
+                                                        {line}
+                                                    </div>
+                                                ))}
+                                            </pre>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <div className="flex-1 flex items-center justify-center theme-text-muted text-sm">
+                                        Select a commit to view details
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
                 ) : null}

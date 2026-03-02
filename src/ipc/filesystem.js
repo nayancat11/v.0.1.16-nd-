@@ -535,10 +535,9 @@ function register(ctx) {
     console.log('[LATEX] compile-latex called with:', texPath, opts);
 
     const engine = opts?.engine || 'pdflatex';
-
-    // Run pdflatex from the directory containing the .tex file
     const workingDir = path.dirname(texPath);
     const texFilename = path.basename(texPath);
+    const base = texFilename.replace(/\.tex$/, '');
     const compileArgs = [
       '-interaction=nonstopmode',
       '-halt-on-error',
@@ -547,40 +546,67 @@ function register(ctx) {
     ];
     if (opts?.shellEscape) compileArgs.unshift('-shell-escape');
 
-    console.log('[LATEX] Running first pass:', engine, compileArgs, 'in', workingDir);
+    // Auto-detect if bibliography processing is needed:
+    // 1. Caller explicitly requested it
+    // 2. .tex contains \bibliography{}, \addbibresource{}, \printbibliography, or \cite commands
+    // 3. .bib files exist in the same directory
+    let needsBib = !!opts?.bibtex;
+    if (!needsBib) {
+      try {
+        const texContent = fs.readFileSync(texPath, 'utf8');
+        needsBib = /\\bibliography\{|\\addbibresource\{|\\printbibliography|\\cite[ptsa]*\{/.test(texContent);
+      } catch (e) { /* ignore read error */ }
+    }
+    if (!needsBib) {
+      try {
+        const dirFiles = fs.readdirSync(workingDir);
+        needsBib = dirFiles.some(f => f.endsWith('.bib'));
+      } catch (e) { /* ignore */ }
+    }
+
+    // Auto-detect biblatex (uses biber) vs natbib/standard (uses bibtex)
+    let useBiber = false;
+    if (needsBib) {
+      try {
+        const texContent = fs.readFileSync(texPath, 'utf8');
+        useBiber = /\\usepackage(\[.*?\])?\{biblatex\}/.test(texContent);
+      } catch (e) { /* ignore */ }
+    }
+
+    // First pass — generates .aux with citation keys
+    console.log('[LATEX] Running first pass:', engine, compileArgs.join(' '));
     const first = spawnSync(engine, compileArgs, { encoding: 'utf8', cwd: workingDir });
-    console.log('[LATEX] First pass stdout:', first.stdout);
-    console.log('[LATEX] First pass stderr:', first.stderr);
 
-    if (opts?.bibtex) {
-      const base = texFilename.replace(/\.tex$/, '');
-      console.log('[LATEX] Running bibtex on:', base);
-      const bib = spawnSync('bibtex', [base], { encoding: 'utf8', cwd: workingDir });
-      console.log('[LATEX] Bibtex stdout:', bib.stdout);
-      console.log('[LATEX] Bibtex stderr:', bib.stderr);
-
-      // biber support (for biblatex with backend=biber)
-      if (bib.status !== 0) {
-        console.log('[LATEX] bibtex failed, trying biber...');
+    // Bibliography pass — biber for biblatex, bibtex for everything else
+    if (needsBib) {
+      if (useBiber) {
+        console.log('[LATEX] Running biber on:', base);
         const biber = spawnSync('biber', [base], { encoding: 'utf8', cwd: workingDir });
-        console.log('[LATEX] Biber stdout:', biber.stdout);
-        console.log('[LATEX] Biber stderr:', biber.stderr);
+        console.log('[LATEX] Biber:', biber.status === 0 ? 'OK' : (biber.stderr || 'FAILED'));
+      } else {
+        console.log('[LATEX] Running bibtex on:', base);
+        const bib = spawnSync('bibtex', [base], { encoding: 'utf8', cwd: workingDir });
+        console.log('[LATEX] Bibtex:', bib.status === 0 ? 'OK' : (bib.stderr || 'FAILED'));
+        // Fallback to biber if bibtex fails (some setups use biber without biblatex package)
+        if (bib.status !== 0) {
+          console.log('[LATEX] bibtex failed, trying biber as fallback...');
+          spawnSync('biber', [base], { encoding: 'utf8', cwd: workingDir });
+        }
       }
     }
 
-    console.log('[LATEX] Running second pass:', engine, compileArgs, 'in', workingDir);
+    // Second pass — resolves citations from .bbl
+    console.log('[LATEX] Running second pass');
     spawnSync(engine, compileArgs, { encoding: 'utf8', cwd: workingDir });
 
-    // Third pass for cross-references
-    console.log('[LATEX] Running third pass:', engine, compileArgs, 'in', workingDir);
+    // Third pass — resolves cross-references and page numbers
+    console.log('[LATEX] Running third pass');
     const result = spawnSync(engine, compileArgs, { encoding: 'utf8', cwd: workingDir });
-    console.log('[LATEX] Third pass stdout:', result.stdout);
-    console.log('[LATEX] Third pass stderr:', result.stderr);
 
     const pdfPath = texPath.replace(/\.tex$/, '.pdf');
     const ok = result.status === 0;
 
-    console.log('[LATEX] DONE. Status:', ok ? 'OK' : 'ERROR', 'PDF:', pdfPath);
+    console.log('[LATEX] DONE. Status:', ok ? 'OK' : 'ERROR', 'bib:', needsBib ? (useBiber ? 'biber' : 'bibtex') : 'none');
 
     return {
       ok,
@@ -893,6 +919,7 @@ function register(ctx) {
                                '.bmp',
                                '.svg',
                                '.zip',
+                               '.stl',
                               ];
 
     const ignorePatterns = ['node_modules', '.git', '.DS_Store'];

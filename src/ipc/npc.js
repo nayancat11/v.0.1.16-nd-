@@ -1012,6 +1012,22 @@ function register(ctx) {
     });
   });
 
+  ipcMain.handle('kg:ingest', async (event, { content, context, get_concepts, link_concepts_facts }) => {
+    return await callBackendApi(`${BACKEND_URL}/api/kg/ingest`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content, context, get_concepts, link_concepts_facts })
+    });
+  });
+
+  ipcMain.handle('kg:query', async (event, { question, top_k }) => {
+    return await callBackendApi(`${BACKEND_URL}/api/kg/query`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question, top_k })
+    });
+  });
+
   // ============== Memory Handlers ==============
 
   ipcMain.handle('memory:search', async (event, { q, npc, team, directory_path, status, limit }) => {

@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { Viewer, Worker, SpecialZoomLevel } from '@react-pdf-viewer/core';
 import { defaultLayoutPlugin } from '@react-pdf-viewer/default-layout';
 import { zoomPlugin } from '@react-pdf-viewer/zoom';
+import pdfjsWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.js?url';
 import {
     Highlighter, MessageSquare, Trash2,
     Eye, EyeOff, Edit2, Save, X, PanelRightClose, PanelRightOpen,
@@ -139,7 +140,7 @@ const PdfContextMenu = ({
 
     return (
         <>
-            <div className="fixed inset-0 z-40" onClick={() => setPdfContextMenuPos(null)} onMouseDown={(e) => e.preventDefault()} />
+            <div className="fixed inset-0 z-40 bg-transparent" onMouseDown={() => setPdfContextMenuPos(null)} />
             <div
                 className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50 text-sm min-w-[160px]"
                 style={{ top: Math.max(0, clampedY), left: Math.max(0, clampedX) }}
@@ -560,9 +561,7 @@ const PdfViewer = ({
     const [textPlacementMode, setTextPlacementMode] = useState(false);
     const [textInput, setTextInput] = useState<{ pageIndex: number; x: number; y: number; text: string } | null>(null);
 
-    const workerUrl = window.location.protocol === 'file:'
-        ? `${window.location.href.substring(0, window.location.href.lastIndexOf('/'))}/pdf.worker.min.js`
-        : `${window.location.origin}/pdf.worker.min.js`;
+    const workerUrl = pdfjsWorkerUrl;
 
     // Plugin factories are custom hooks internally - must be called unconditionally every render
     const zoomPluginInstance = zoomPlugin();
@@ -1710,7 +1709,7 @@ const PdfViewer = ({
             {/* Inline comment popover */}
             {inlineComment && (
                 <>
-                    <div className="fixed inset-0 z-40" onClick={() => setInlineComment(null)} />
+                    <div className="fixed inset-0 z-40 bg-transparent" onMouseDown={() => setInlineComment(null)} />
                     <div
                         className="fixed z-50 theme-bg-secondary theme-border border rounded-lg shadow-xl p-3"
                         style={{ top: inlineComment.y, left: inlineComment.x, minWidth: '240px', maxWidth: '320px' }}
@@ -1761,7 +1760,7 @@ const PdfViewer = ({
             {/* Text annotation input */}
             {textInput && (
                 <>
-                    <div className="fixed inset-0 z-40" onClick={() => setTextInput(null)} />
+                    <div className="fixed inset-0 z-40 bg-transparent" onMouseDown={() => setTextInput(null)} />
                     <div
                         className="fixed z-50 theme-bg-secondary theme-border border rounded-lg shadow-xl p-3"
                         style={{ top: '50%', left: '50%', transform: 'translate(-50%, -50%)', minWidth: '280px' }}

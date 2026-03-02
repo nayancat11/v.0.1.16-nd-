@@ -1,6 +1,5 @@
 import { getFileName } from './utils';
 import React, { useState, useRef, useCallback, useEffect, memo } from 'react';
-import { ZoomIn, ZoomOut, RotateCw, Download, Maximize2, RefreshCw } from 'lucide-react';
 
 interface PicViewerProps {
     nodeId: string;
@@ -24,11 +23,11 @@ const PicViewer: React.FC<PicViewerProps> = ({ nodeId, contentDataRef }) => {
     const imageSrc = filePath ? `file://${filePath}` : null;
 
     const handleZoomIn = useCallback(() => {
-        setScale(prev => Math.min(prev * 1.25, 10));
+        setScale(prev => Math.min(prev * 1.1, 10));
     }, []);
 
     const handleZoomOut = useCallback(() => {
-        setScale(prev => Math.max(prev / 1.25, 0.1));
+        setScale(prev => Math.max(prev / 1.1, 0.1));
     }, []);
 
     const handleRotate = useCallback(() => {
@@ -43,7 +42,7 @@ const PicViewer: React.FC<PicViewerProps> = ({ nodeId, contentDataRef }) => {
 
     const handleWheel = useCallback((e: React.WheelEvent) => {
         e.preventDefault();
-        const delta = e.deltaY > 0 ? 0.9 : 1.1;
+        const delta = e.deltaY > 0 ? 0.95 : 1.05;
         setScale(prev => Math.min(Math.max(prev * delta, 0.1), 10));
     }, []);
 
@@ -98,16 +97,27 @@ const PicViewer: React.FC<PicViewerProps> = ({ nodeId, contentDataRef }) => {
     // Auto-fit to width when image loads
     const handleImageLoad = useCallback(() => {
         setImageLoaded(true);
-        // Auto-fit to pane width
         if (containerRef.current && imageRef.current) {
             const containerWidth = containerRef.current.clientWidth - 40;
             const imgWidth = imageRef.current.naturalWidth;
             const fitScale = containerWidth / imgWidth;
-            // Don't scale up small images, only scale down large ones
             setScale(Math.min(fitScale, 1));
             setPosition({ x: 0, y: 0 });
         }
     }, []);
+
+    // Expose control methods on paneData for the pane header buttons
+    useEffect(() => {
+        if (paneData) {
+            paneData.zoomIn = handleZoomIn;
+            paneData.zoomOut = handleZoomOut;
+            paneData.rotate = handleRotate;
+            paneData.fitToScreen = handleFitToScreen;
+            paneData.resetView = handleReset;
+            paneData.download = handleDownload;
+            paneData.scale = scale;
+        }
+    }, [paneData, handleZoomIn, handleZoomOut, handleRotate, handleFitToScreen, handleReset, handleDownload, scale]);
 
     useEffect(() => {
         setImageLoaded(false);
@@ -129,57 +139,6 @@ const PicViewer: React.FC<PicViewerProps> = ({ nodeId, contentDataRef }) => {
 
     return (
         <div className="flex-1 flex flex-col overflow-hidden theme-bg-primary">
-            {/* Toolbar */}
-            <div className="flex items-center gap-2 px-3 py-2 theme-bg-secondary border-b theme-border">
-                <button
-                    onClick={handleZoomOut}
-                    className="p-1.5 rounded theme-hover transition-colors"
-                    title="Zoom Out"
-                >
-                    <ZoomOut size={18} />
-                </button>
-                <span className="text-sm min-w-[60px] text-center">
-                    {Math.round(scale * 100)}%
-                </span>
-                <button
-                    onClick={handleZoomIn}
-                    className="p-1.5 rounded theme-hover transition-colors"
-                    title="Zoom In"
-                >
-                    <ZoomIn size={18} />
-                </button>
-                <div className="w-px h-5 bg-gray-600 mx-1" />
-                <button
-                    onClick={handleRotate}
-                    className="p-1.5 rounded theme-hover transition-colors"
-                    title="Rotate 90°"
-                >
-                    <RotateCw size={18} />
-                </button>
-                <button
-                    onClick={handleFitToScreen}
-                    className="p-1.5 rounded theme-hover transition-colors"
-                    title="Fit to Screen"
-                >
-                    <Maximize2 size={18} />
-                </button>
-                <button
-                    onClick={handleReset}
-                    className="p-1.5 rounded theme-hover transition-colors"
-                    title="Reset View"
-                >
-                    <RefreshCw size={18} />
-                </button>
-                <div className="flex-1" />
-                <button
-                    onClick={handleDownload}
-                    className="p-1.5 rounded theme-hover transition-colors"
-                    title="Download"
-                >
-                    <Download size={18} />
-                </button>
-            </div>
-
             {/* Image Container */}
             <div
                 ref={containerRef}
@@ -225,10 +184,9 @@ const PicViewer: React.FC<PicViewerProps> = ({ nodeId, contentDataRef }) => {
             <div className="px-3 py-1 text-xs theme-bg-secondary border-t theme-border theme-text-muted flex items-center gap-4">
                 <span>{getFileName(filePath)}</span>
                 {imageLoaded && imageRef.current && (
-                    <>
-                        <span>{imageRef.current.naturalWidth} x {imageRef.current.naturalHeight}</span>
-                    </>
+                    <span>{imageRef.current.naturalWidth} x {imageRef.current.naturalHeight}</span>
                 )}
+                <span>{Math.round(scale * 100)}%</span>
             </div>
         </div>
     );

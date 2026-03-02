@@ -439,6 +439,96 @@ function register(ctx) {
       return { success: false, error: err.message };
     }
   });
+
+  // Cherry-pick a commit onto current branch
+  ipcMain.handle('gitCherryPick', async (event, repoPath, commitHash) => {
+    log(`[Git] Cherry-pick ${commitHash} in ${repoPath}`);
+    try {
+      const git = simpleGit(repoPath);
+      await git.raw(['cherry-pick', commitHash]);
+      return { success: true };
+    } catch (err) {
+      const msg = err.message || '';
+      if (msg.includes('conflict') || msg.includes('CONFLICT')) {
+        return { success: false, conflict: true, error: 'Cherry-pick resulted in conflicts. Resolve them and continue, or abort.' };
+      }
+      console.error(`[Git] Error cherry-picking:`, err);
+      return { success: false, error: msg };
+    }
+  });
+
+  // Abort cherry-pick in progress
+  ipcMain.handle('gitCherryPickAbort', async (event, repoPath) => {
+    log(`[Git] Abort cherry-pick in ${repoPath}`);
+    try {
+      const git = simpleGit(repoPath);
+      await git.raw(['cherry-pick', '--abort']);
+      return { success: true };
+    } catch (err) {
+      console.error(`[Git] Error aborting cherry-pick:`, err);
+      return { success: false, error: err.message };
+    }
+  });
+
+  // Continue cherry-pick after resolving conflicts
+  ipcMain.handle('gitCherryPickContinue', async (event, repoPath) => {
+    log(`[Git] Continue cherry-pick in ${repoPath}`);
+    try {
+      const git = simpleGit(repoPath);
+      await git.raw(['cherry-pick', '--continue']);
+      return { success: true };
+    } catch (err) {
+      console.error(`[Git] Error continuing cherry-pick:`, err);
+      return { success: false, error: err.message };
+    }
+  });
+
+  // Revert a commit (creates a new commit undoing the target)
+  ipcMain.handle('gitRevert', async (event, repoPath, commitHash) => {
+    log(`[Git] Revert ${commitHash} in ${repoPath}`);
+    try {
+      const git = simpleGit(repoPath);
+      await git.raw(['revert', '--no-edit', commitHash]);
+      return { success: true };
+    } catch (err) {
+      const msg = err.message || '';
+      if (msg.includes('conflict') || msg.includes('CONFLICT')) {
+        return { success: false, conflict: true, error: 'Revert resulted in conflicts. Resolve them manually.' };
+      }
+      console.error(`[Git] Error reverting:`, err);
+      return { success: false, error: msg };
+    }
+  });
+
+  // Reset to a specific commit (soft keeps changes staged, mixed unstages, hard discards)
+  ipcMain.handle('gitResetToCommit', async (event, repoPath, commitHash, mode = 'mixed') => {
+    log(`[Git] Reset --${mode} to ${commitHash} in ${repoPath}`);
+    try {
+      const git = simpleGit(repoPath);
+      const validModes = ['soft', 'mixed', 'hard'];
+      if (!validModes.includes(mode)) {
+        return { success: false, error: `Invalid mode: ${mode}. Use soft, mixed, or hard.` };
+      }
+      await git.raw(['reset', `--${mode}`, commitHash]);
+      return { success: true };
+    } catch (err) {
+      console.error(`[Git] Error resetting:`, err);
+      return { success: false, error: err.message };
+    }
+  });
+
+  // Get log for a specific branch (for cherry-pick source selection)
+  ipcMain.handle('gitLogBranch', async (event, repoPath, branchName, options = {}) => {
+    log(`[Git] Log for branch ${branchName} in ${repoPath}`);
+    try {
+      const git = simpleGit(repoPath);
+      const result = await git.log({ maxCount: options.maxCount || 50, [branchName]: null });
+      return { success: true, commits: result.all };
+    } catch (err) {
+      console.error(`[Git] Error getting branch log:`, err);
+      return { success: false, error: err.message, commits: [] };
+    }
+  });
 }
 
 module.exports = { register };

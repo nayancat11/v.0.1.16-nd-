@@ -130,6 +130,7 @@ export const getFileIcon = (filename: string) => {
         case 'exp': return <ExtBadge label="exp" color="#c084fc" bg="rgba(192,132,252,0.15)" />;
         case 'png': case 'jpg': case 'jpeg': case 'gif': case 'svg': case 'webp':
             return <ExtBadge label={ext.slice(0, 3)} color="#e879f9" bg="rgba(232,121,249,0.12)" />;
+        case 'stl': return <ExtBadge label="stl" color="#22d3ee" bg="rgba(34,211,238,0.12)" />;
         case 'tex': case 'latex': case 'sty': case 'cls': case 'bib':
             return <span className="flex-shrink-0 inline-flex items-center justify-center rounded" style={{
                 width: 18, height: 16, fontSize: '8px', fontWeight: 800,
@@ -303,7 +304,7 @@ export const loadAvailableNPCs = async (
         const projectNPCs = projectResponse.npcs || [];
 
 
-        const globalResponse = await window.api.getNPCTeamGlobal();
+        const globalResponse = await window.api.getNPCTeamGlobal('npcsh');
         const globalNPCs = globalResponse.npcs || [];
 
 
@@ -615,7 +616,11 @@ export const handleBatchMemoryProcess = (
 };
 
 export const toggleTheme = (setIsDarkMode: (fn: (prev: boolean) => boolean) => void) => {
-    setIsDarkMode((prev) => !prev);
+    setIsDarkMode((prev) => {
+        const next = !prev;
+        localStorage.setItem('incognide_darkMode', next.toString());
+        return next;
+    });
 };
 
 export const loadDefaultPath = async (

@@ -1234,7 +1234,7 @@ ${htmlContent}
             {/* Context Menu */}
             {docxContextMenu && (
                 <>
-                    <div className="fixed inset-0 z-40" onClick={() => setDocxContextMenu(null)} />
+                    <div className="fixed inset-0 z-40 bg-transparent" onMouseDown={() => setDocxContextMenu(null)} />
                     <div
                         className="fixed theme-bg-secondary theme-border border rounded shadow-lg py-1 z-50 text-sm min-w-[160px]"
                         style={{ top: docxContextMenu.y, left: docxContextMenu.x }}

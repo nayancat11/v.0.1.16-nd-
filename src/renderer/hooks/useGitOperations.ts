@@ -44,6 +44,19 @@ export function useGitOperations({ currentPath }: UseGitOperationsParams) {
         }
     };
 
+    const gitDiscardFile = async (file: string) => {
+        setGitLoading(true);
+        setGitError(null);
+        try {
+            await (window as any).api.gitDiscardFile(currentPath, file);
+            await loadGitStatus();
+        } catch (err: any) {
+            setGitError(err.message || 'Failed to discard changes');
+        } finally {
+            setGitLoading(false);
+        }
+    };
+
     const gitUnstageFile = async (file: string) => {
         setGitLoading(true);
         setGitError(null);
@@ -274,6 +287,103 @@ export function useGitOperations({ currentPath }: UseGitOperationsParams) {
         }
     };
 
+    const gitCherryPick = async (commitHash: string) => {
+        setGitLoading(true);
+        setGitError(null);
+        try {
+            const result = await (window as any).api.gitCherryPick(currentPath, commitHash);
+            if (!result.success) {
+                setGitError(result.error || 'Cherry-pick failed');
+            }
+            await loadGitStatus();
+            await loadGitHistory();
+            return result;
+        } catch (err: any) {
+            setGitError(err.message || 'Failed to cherry-pick');
+            return { success: false, error: err.message };
+        } finally {
+            setGitLoading(false);
+        }
+    };
+
+    const gitCherryPickAbort = async () => {
+        setGitLoading(true);
+        setGitError(null);
+        try {
+            await (window as any).api.gitCherryPickAbort(currentPath);
+            await loadGitStatus();
+        } catch (err: any) {
+            setGitError(err.message || 'Failed to abort cherry-pick');
+        } finally {
+            setGitLoading(false);
+        }
+    };
+
+    const gitCherryPickContinue = async () => {
+        setGitLoading(true);
+        setGitError(null);
+        try {
+            const result = await (window as any).api.gitCherryPickContinue(currentPath);
+            if (!result.success) {
+                setGitError(result.error || 'Cherry-pick continue failed');
+            }
+            await loadGitStatus();
+            await loadGitHistory();
+        } catch (err: any) {
+            setGitError(err.message || 'Failed to continue cherry-pick');
+        } finally {
+            setGitLoading(false);
+        }
+    };
+
+    const gitRevertCommit = async (commitHash: string) => {
+        setGitLoading(true);
+        setGitError(null);
+        try {
+            const result = await (window as any).api.gitRevert(currentPath, commitHash);
+            if (!result.success) {
+                setGitError(result.error || 'Revert failed');
+            }
+            await loadGitStatus();
+            await loadGitHistory();
+            return result;
+        } catch (err: any) {
+            setGitError(err.message || 'Failed to revert commit');
+            return { success: false, error: err.message };
+        } finally {
+            setGitLoading(false);
+        }
+    };
+
+    const gitResetToCommit = async (commitHash: string, mode: 'soft' | 'mixed' | 'hard' = 'mixed') => {
+        setGitLoading(true);
+        setGitError(null);
+        try {
+            const result = await (window as any).api.gitResetToCommit(currentPath, commitHash, mode);
+            if (!result.success) {
+                setGitError(result.error || 'Reset failed');
+            }
+            await loadGitStatus();
+            await loadGitHistory();
+            return result;
+        } catch (err: any) {
+            setGitError(err.message || 'Failed to reset');
+            return { success: false, error: err.message };
+        } finally {
+            setGitLoading(false);
+        }
+    };
+
+    const gitLogBranch = async (branchName: string) => {
+        try {
+            const result = await (window as any).api.gitLogBranch(currentPath, branchName, { maxCount: 50 });
+            return result?.commits || [];
+        } catch (err) {
+            console.error('Failed to load branch log:', err);
+            return [];
+        }
+    };
+
     return {
         // State
         gitStatus,
@@ -301,6 +411,7 @@ export function useGitOperations({ currentPath }: UseGitOperationsParams) {
         // Handlers
         loadGitStatus,
         gitStageFile,
+        gitDiscardFile,
         gitUnstageFile,
         gitCommitChanges,
         gitPullChanges,
@@ -318,5 +429,11 @@ export function useGitOperations({ currentPath }: UseGitOperationsParams) {
         gitDeleteBranch,
         loadCommitDetails,
         loadFileDiff,
+        gitCherryPick,
+        gitCherryPickAbort,
+        gitCherryPickContinue,
+        gitRevertCommit,
+        gitResetToCommit,
+        gitLogBranch,
     };
 }

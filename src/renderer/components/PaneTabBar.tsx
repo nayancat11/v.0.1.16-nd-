@@ -209,6 +209,11 @@ export const PaneTabBar: React.FC<PaneTabBarProps> = ({
             const browserUrl = tab.contentType === 'browser' && isActiveTab
                 ? (paneData?.browserUrl || tab.browserUrl)
                 : tab.browserUrl;
+            // For active tabs, get fileContent from virtual data (where the editor writes)
+            const virtualData = contentDataRef?.current?.[`${nodeId}_${tab.id}`];
+            const latestFileContent = virtualData?.fileContent ?? tab.fileContent;
+            const latestFileChanged = virtualData?.fileChanged ?? tab.fileChanged;
+            const latestScrollPos = virtualData?._scrollTopPos ?? tab._scrollTopPos;
             setTimeout(() => {
                 setDraggedItem({
                     type: 'tab',
@@ -219,8 +224,9 @@ export const PaneTabBar: React.FC<PaneTabBarProps> = ({
                     contentType: tab.contentType,
                     contentId: tab.contentId,
                     browserUrl: browserUrl,
-                    fileContent: tab.fileContent,
-                    fileChanged: tab.fileChanged
+                    fileContent: latestFileContent,
+                    fileChanged: latestFileChanged,
+                    _scrollTopPos: latestScrollPos
                 });
             }, 0);
         }

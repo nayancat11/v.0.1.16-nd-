@@ -648,7 +648,7 @@ const defaultSettings = {
     theme_dark_bg: '#0f172a',
     theme_dark_text: '#f1f5f9',
     theme_light_primary: '#ec4899',
-    theme_light_bg: '#ffffff',
+    theme_light_bg: '#8ecfb8',
     theme_light_text: '#1e293b',
     theme_hue_shift: 0,
     theme_saturation: 100,
@@ -2003,7 +2003,7 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
                                 <span className="text-xs text-gray-400">Primary</span>
                             </div>
                             <div className="flex items-center gap-2">
-                                <input type="color" value={globalSettings.theme_light_bg || '#ffffff'} onChange={(e) => { setGlobalSettings({...globalSettings, theme_light_bg: e.target.value}); document.documentElement.style.setProperty('--theme-bg-light', e.target.value); }} className="w-8 h-6 rounded cursor-pointer" />
+                                <input type="color" value={globalSettings.theme_light_bg || '#8ecfb8'} onChange={(e) => { setGlobalSettings({...globalSettings, theme_light_bg: e.target.value}); document.documentElement.style.setProperty('--theme-bg-light', e.target.value); }} className="w-8 h-6 rounded cursor-pointer" />
                                 <span className="text-xs text-gray-400">Background</span>
                             </div>
                             <div className="flex items-center gap-2">
@@ -2013,9 +2013,9 @@ const SettingsMenu = ({ isOpen, onClose, currentPath, onPathChange, availableMod
                         </div>
 
                         <button onClick={() => {
-                            setGlobalSettings({...globalSettings, theme_dark_primary: '#3b82f6', theme_dark_bg: '#0f172a', theme_dark_text: '#f1f5f9', theme_light_primary: '#ec4899', theme_light_bg: '#ffffff', theme_light_text: '#1e293b', theme_hue_shift: 0, theme_saturation: 100, theme_brightness: 100});
+                            setGlobalSettings({...globalSettings, theme_dark_primary: '#3b82f6', theme_dark_bg: '#0f172a', theme_dark_text: '#f1f5f9', theme_light_primary: '#ec4899', theme_light_bg: '#8ecfb8', theme_light_text: '#1e293b', theme_hue_shift: 0, theme_saturation: 100, theme_brightness: 100});
                             document.documentElement.style.setProperty('--theme-primary-dark', '#3b82f6'); document.documentElement.style.setProperty('--theme-bg-dark', '#0f172a'); document.documentElement.style.setProperty('--theme-text-dark', '#f1f5f9');
-                            document.documentElement.style.setProperty('--theme-primary-light', '#ec4899'); document.documentElement.style.setProperty('--theme-bg-light', '#ffffff'); document.documentElement.style.setProperty('--theme-text-light', '#1e293b');
+                            document.documentElement.style.setProperty('--theme-primary-light', '#ec4899'); document.documentElement.style.setProperty('--theme-bg-light', '#8ecfb8'); document.documentElement.style.setProperty('--theme-text-light', '#1e293b');
                             document.documentElement.style.setProperty('--theme-hue-shift', '0deg'); document.documentElement.style.setProperty('--theme-saturation', '100%'); document.documentElement.style.setProperty('--theme-brightness', '100%');
                         }} className="text-xs text-gray-400 hover:text-white">Reset to defaults</button>
                     </div>
