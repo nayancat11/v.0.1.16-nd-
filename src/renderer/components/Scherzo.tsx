@@ -280,6 +280,9 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
     const [notationClipboard, setNotationClipboard] = useState<Array<{ note: number; start: number; duration: number; velocity: number }>>([]);
     const [notationMeasures, setNotationMeasures] = useState(16);
     const pianoRollScrollRef = useRef<HTMLDivElement>(null);
+    const pianoRollGridRef = useRef<HTMLDivElement>(null);
+    const notationAnimRef = useRef<number | null>(null);
+    const notationOscillators = useRef<OscillatorNode[]>([]);
     const [pianoRollDrag, setPianoRollDrag] = useState<{
         type: 'move' | 'resize';
         noteIdx: number;
@@ -1722,10 +1725,28 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
         }
     }, [pianoNotes, notationBpm, notationTimeSignature]);
 
+    const stopNotation = useCallback(() => {
+        // Stop all oscillators
+        notationOscillators.current.forEach(osc => { try { osc.stop(); } catch {} });
+        notationOscillators.current = [];
+        if (notationAnimRef.current) cancelAnimationFrame(notationAnimRef.current);
+        notationAnimRef.current = null;
+        setIsNotationPlaying(false);
+        setNotationPlayhead(0);
+    }, []);
+
     const playNotation = useCallback(() => {
+        if (isNotationPlaying) { stopNotation(); return; }
+        if (pianoNotes.length === 0) return;
+
         if (!synthRef.current) synthRef.current = new AudioContext();
         const ctx = synthRef.current;
+        if (ctx.state === 'suspended') ctx.resume();
         const startTime = ctx.currentTime;
+
+        // Stop any previous oscillators
+        notationOscillators.current.forEach(osc => { try { osc.stop(); } catch {} });
+        notationOscillators.current = [];
 
         pianoNotes.forEach(note => {
             const noteStartTime = startTime + (note.start * 60 / notationBpm);
@@ -1742,6 +1763,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
             gain.connect(ctx.destination);
             osc.start(noteStartTime);
             osc.stop(noteStartTime + noteDuration + 0.05);
+            notationOscillators.current.push(osc);
         });
 
         setIsNotationPlaying(true);
@@ -1749,19 +1771,32 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
         const totalBeats = Math.max(...pianoNotes.map(n => n.start + n.duration), 0);
         const totalDurationMs = totalBeats * 60 / notationBpm * 1000;
         const playStartTime = performance.now();
+        const beatWidth = 40 * notationZoom;
+
         const animatePlayhead = () => {
             const elapsed = performance.now() - playStartTime;
             const currentBeat = (elapsed / 1000) * (notationBpm / 60);
             if (elapsed < totalDurationMs) {
                 setNotationPlayhead(currentBeat);
-                requestAnimationFrame(animatePlayhead);
+                // Auto-scroll the piano roll grid to keep playhead visible
+                if (pianoRollGridRef.current) {
+                    const playheadX = currentBeat * beatWidth;
+                    const scrollLeft = pianoRollGridRef.current.scrollLeft;
+                    const viewWidth = pianoRollGridRef.current.clientWidth;
+                    if (playheadX > scrollLeft + viewWidth - 60 || playheadX < scrollLeft) {
+                        pianoRollGridRef.current.scrollLeft = playheadX - 80;
+                    }
+                }
+                notationAnimRef.current = requestAnimationFrame(animatePlayhead);
             } else {
                 setNotationPlayhead(0);
                 setIsNotationPlaying(false);
+                notationAnimRef.current = null;
+                notationOscillators.current = [];
             }
         };
-        requestAnimationFrame(animatePlayhead);
-    }, [pianoNotes, notationBpm, notationInstrument]);
+        notationAnimRef.current = requestAnimationFrame(animatePlayhead);
+    }, [pianoNotes, notationBpm, notationInstrument, notationZoom, isNotationPlaying, stopNotation]);
 
     // Auto-scroll piano roll to middle C on first render
     useEffect(() => {
@@ -3979,7 +4014,7 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                     })}
                 </div>
 
-                <div className="flex-1 overflow-auto"
+                <div className="flex-1 overflow-auto" ref={pianoRollGridRef}
                     onScroll={(e) => {
                         if (pianoRollScrollRef.current) pianoRollScrollRef.current.scrollTop = e.currentTarget.scrollTop;
                     }}
@@ -4097,10 +4132,15 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                         })}
 
                         {/* Playhead */}
-                        <div
-                            className="absolute top-0 bottom-0 w-0.5 bg-red-500 pointer-events-none z-20"
-                            style={{ left: `${notationPlayhead * beatWidth}px` }}
-                        />
+                        {(isNotationPlaying || notationPlayhead > 0) && (
+                            <div
+                                className="absolute top-0 bottom-0 pointer-events-none z-20"
+                                style={{ left: `${notationPlayhead * beatWidth}px` }}
+                            >
+                                <div className="w-0 h-0 border-l-[5px] border-r-[5px] border-t-[8px] border-l-transparent border-r-transparent border-t-red-500 -translate-x-[5px]" />
+                                <div className="w-[2px] bg-red-500 -translate-x-[1px]" style={{ height: `${visibleKeys.length * noteHeight}px` }} />
+                            </div>
+                        )}
 
                         {/* Input cursor */}
                         <div
@@ -4970,17 +5010,18 @@ export const Scherzo: React.FC<ScherzoProps> = ({ currentPath, onClose }) => {
                     <div className="w-px h-6 theme-bg-tertiary mx-2"/>
 
                     <button
-                        onClick={() => setNotationPlayhead(0)}
-                        className="p-2 theme-hover rounded"
+                        onClick={() => { stopNotation(); setNotationPlayhead(0); }}
+                        className="p-2 theme-hover rounded" title="Rewind"
                     >
                         <SkipBack size={16}/>
                     </button>
                     <button
                         onClick={playNotation}
                         disabled={pianoNotes.length === 0}
-                        className={`p-2 rounded ${pianoNotes.length > 0 ? 'bg-purple-600 hover:bg-purple-700' : 'theme-bg-tertiary opacity-50'}`}
+                        className={`p-2 rounded ${pianoNotes.length > 0 ? (isNotationPlaying ? 'bg-red-600 hover:bg-red-700' : 'bg-purple-600 hover:bg-purple-700') : 'theme-bg-tertiary opacity-50'}`}
+                        title={isNotationPlaying ? 'Stop' : 'Play'}
                     >
-                        {isNotationPlaying ? <Pause size={16}/> : <Play size={16}/>}
+                        {isNotationPlaying ? <Square size={16}/> : <Play size={16}/>}
                     </button>
 
                     <div className="w-px h-6 theme-bg-tertiary mx-2"/>
