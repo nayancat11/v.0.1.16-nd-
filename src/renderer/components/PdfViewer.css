@@ -227,6 +227,38 @@
     display: none !important;
 }
 
+/* Fix extra blank pages between real pages */
+.pdf-viewer-container .rpv-default-layout__body {
+    overflow: auto !important;
+}
+
+/* Prevent rpv from inserting extra page-sized spacers */
+.pdf-viewer-container .rpv-core__inner-pages {
+    overflow: auto !important;
+}
+
+/* Kill any phantom/placeholder pages that rpv renders as spacers */
+.pdf-viewer-container .rpv-core__page-layer--single {
+    display: none !important;
+}
+
+/* Ensure virtual scroll spacer elements don't create visible blank pages */
+.pdf-viewer-container .rpv-core__inner-page[data-testid="core__inner-page"] {
+    background: transparent !important;
+}
+
+/* Remove any extra margin/padding between pages */
+.pdf-viewer-container .rpv-core__page-layer {
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+/* Make sure placeholder pages (not yet rendered) are minimal height */
+.pdf-viewer-container .rpv-core__page-layer:empty {
+    min-height: 0 !important;
+    height: auto !important;
+}
+
 /* ============================================
    SCROLLBAR
    ============================================ */

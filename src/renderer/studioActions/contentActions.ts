@@ -208,18 +208,40 @@ async function run_terminal(
   }
 
   try {
+    // Retry if the PTY session isn't ready yet (e.g. terminal just opened)
+    let result: any = null;
+    for (let attempt = 0; attempt < 20; attempt++) {
+      result = await (window as any).api?.writeToTerminal?.({
+        id: terminalId,
+        data: command + '\n'
+      });
+      if (result?.success) break;
+      await new Promise(resolve => setTimeout(resolve, 150));
+    }
 
-    await (window as any).api?.writeToTerminal?.({
-      id: terminalId,
-      data: command + '\n'
-    });
+    if (!result?.success) {
+      return {
+        success: false,
+        error: result?.error || 'Terminal session not ready after retries'
+      };
+    }
+
+    // Wait for output to appear so the agent can see results
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Read terminal output and return it
+    let output: string | null = null;
+    if (data.getTerminalContext) {
+      try { output = data.getTerminalContext(); } catch {}
+    }
 
     return {
       success: true,
       paneId,
       terminalId,
       command,
-      message: 'Command sent to terminal'
+      output: output || '(command sent, output may still be streaming)',
+      message: 'Command executed'
     };
   } catch (error) {
     return {
