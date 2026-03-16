@@ -555,6 +555,17 @@ const PdfViewer = ({
     const zoomPluginInstance = zoomPlugin();
 
     useEffect(() => {
+        const linkId = 'pdf-signature-fonts';
+        if (!document.getElementById(linkId)) {
+            const link = document.createElement('link');
+            link.id = linkId;
+            link.href = 'https://fonts.googleapis.com/css2?family=Dancing+Script&family=Great+Vibes&family=Pacifico&family=Caveat&family=Satisfy&display=swap';
+            link.rel = 'stylesheet';
+            document.head.appendChild(link);
+        }
+    }, []);
+
+    useEffect(() => {
         const styleId = 'pdf-scale-factor-style';
         let style = document.getElementById(styleId) as HTMLStyleElement;
         if (!style) {
@@ -774,8 +785,8 @@ const PdfViewer = ({
             strokeWidth: 2,
             positionX: x,
             positionY: y,
-            width: 30,
-            height: 12,
+            width: 40,
+            height: 8,
         });
         setSignaturePlacementMode(false);
         setCurrentSignature(null);
@@ -835,11 +846,11 @@ const PdfViewer = ({
         loadDrawings();
     }, [textInput, filePath, drawingColor, loadDrawings]);
 
-    const handleExportPdf = useCallback(async () => {
+    const buildAnnotatedPdf = useCallback(async (): Promise<Uint8Array | null> => {
         try {
             const { PDFDocument, rgb, StandardFonts } = await import('pdf-lib');
             const cachedBuffer = pdfBufferCache.get(filePath);
-            if (!cachedBuffer) { alert('PDF not loaded yet'); return; }
+            if (!cachedBuffer) { alert('PDF not loaded yet'); return null; }
             const pdfDoc = await PDFDocument.load(new Uint8Array(cachedBuffer));
             const pages = pdfDoc.getPages();
 
@@ -868,17 +879,54 @@ const PdfViewer = ({
                 }
             }
 
+            const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
             for (const d of drawings) {
                 if (d.page_index >= pages.length) continue;
                 const page = pages[d.page_index];
                 const { width: pw, height: ph } = page.getSize();
 
-                if (d.drawing_type === 'typed_signature' || d.drawing_type === 'text') {
-                    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+                if (d.drawing_type === 'typed_signature') {
+                    const parts = d.svg_path.split(':');
+                    const fontFamily = parts.length >= 3 && parts[0] === 'TEXT' ? parts[1] : "'Dancing Script', cursive";
+                    const displayText = parts.length >= 3 && parts[0] === 'TEXT' ? parts.slice(2).join(':') : d.svg_path;
+
+                    // Render signature with correct font to canvas, embed as image
+                    const sigCanvas = document.createElement('canvas');
+                    const fontSize = 48;
+                    const sigCtx = sigCanvas.getContext('2d')!;
+                    sigCtx.font = `${fontSize}px ${fontFamily}`;
+                    const measured = sigCtx.measureText(displayText);
+                    const textWidth = Math.ceil(measured.width) + 20;
+                    const textHeight = Math.ceil(fontSize * 1.4);
+                    sigCanvas.width = textWidth;
+                    sigCanvas.height = textHeight;
+                    // Re-set font after resize
+                    sigCtx.font = `${fontSize}px ${fontFamily}`;
+                    sigCtx.fillStyle = d.stroke_color || '#000000';
+                    sigCtx.textBaseline = 'top';
+                    sigCtx.fillText(displayText, 4, fontSize * 0.15);
+
+                    const pngDataUrl = sigCanvas.toDataURL('image/png');
+                    const pngBytes = Uint8Array.from(atob(pngDataUrl.split(',')[1]), c => c.charCodeAt(0));
+                    const img = await pdfDoc.embedPng(pngBytes);
+
+                    const drawW = (d.width / 100) * pw;
+                    const drawH = (d.height / 100) * ph;
+                    const aspect = textWidth / textHeight;
+                    let imgW = drawW;
+                    let imgH = drawW / aspect;
+                    if (imgH > drawH) { imgH = drawH; imgW = drawH * aspect; }
+
+                    page.drawImage(img, {
+                        x: (d.position_x / 100) * pw,
+                        y: ph - ((d.position_y / 100) * ph) - imgH,
+                        width: imgW,
+                        height: imgH,
+                    });
+                } else if (d.drawing_type === 'text') {
                     let displayText = d.svg_path;
-                    if (d.svg_path.startsWith('TEXT:')) {
-                        displayText = d.svg_path.split(':').slice(2).join(':');
-                    } else if (d.svg_path.startsWith('TEXT_ANNOTATION:')) {
+                    if (d.svg_path.startsWith('TEXT_ANNOTATION:')) {
                         displayText = d.svg_path.replace('TEXT_ANNOTATION:', '');
                     }
                     const cMatch = d.stroke_color.match(/^#([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
@@ -888,12 +936,11 @@ const PdfViewer = ({
                     page.drawText(displayText, {
                         x: (d.position_x / 100) * pw,
                         y: ph - ((d.position_y / 100) * ph) - 12,
-                        size: d.drawing_type === 'text' ? 11 : 14,
-                        font,
+                        size: 11,
+                        font: helvetica,
                         color: rgb(cr, cg, cb),
                     });
                 } else {
-
                     const cmds = d.svg_path.match(/[ML]\s*[\d.]+\s+[\d.]+/g);
                     if (!cmds || cmds.length < 2) continue;
                     const cMatch = d.stroke_color.match(/^#([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
@@ -930,20 +977,57 @@ const PdfViewer = ({
                 }
             }
 
-            const pdfBytes = await pdfDoc.save();
+            return await pdfDoc.save();
+        } catch (err) {
+            console.error('[PdfViewer] Build annotated PDF failed:', err);
+            alert('Failed to build PDF: ' + err.message);
+            return null;
+        }
+    }, [filePath, localHighlights, drawings]);
+
+    const handleExportPdf = useCallback(async () => {
+        const pdfBytes = await buildAnnotatedPdf();
+        if (!pdfBytes) return;
+        const baseName = getFileName(filePath)?.replace('.pdf', '') || 'document';
+        try {
+            const result = await (window as any).api.showSaveDialog({
+                defaultPath: `${baseName}_annotated.pdf`,
+                filters: [{ name: 'PDF', extensions: ['pdf'] }],
+            });
+            if (result?.filePath) {
+                await (window as any).api.writeFileBuffer(result.filePath, pdfBytes);
+            }
+        } catch {
+            // Fallback: blob download
             const blob = new Blob([pdfBytes], { type: 'application/pdf' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
-            const baseName = getFileName(filePath)?.replace('.pdf', '') || 'document';
             a.href = url;
             a.download = `${baseName}_annotated.pdf`;
             a.click();
-            URL.revokeObjectURL(url);
-        } catch (err) {
-            console.error('[PdfViewer] Export failed:', err);
-            alert('Failed to export PDF: ' + err.message);
+            setTimeout(() => URL.revokeObjectURL(url), 5000);
         }
-    }, [filePath, localHighlights, drawings]);
+    }, [filePath, buildAnnotatedPdf]);
+
+    const handlePrintPdf = useCallback(async () => {
+        const pdfBytes = await buildAnnotatedPdf();
+        if (!pdfBytes) return;
+        const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        const iframe = document.createElement('iframe');
+        iframe.style.display = 'none';
+        iframe.src = url;
+        document.body.appendChild(iframe);
+        iframe.onload = () => {
+            setTimeout(() => {
+                iframe.contentWindow?.print();
+                setTimeout(() => {
+                    document.body.removeChild(iframe);
+                    URL.revokeObjectURL(url);
+                }, 1000);
+            }, 500);
+        };
+    }, [buildAnnotatedPdf]);
 
     const handleTextSelect = useCallback((selection) => {
         setSelectedPdfText(selection);
@@ -1146,6 +1230,9 @@ const PdfViewer = ({
                 const pageDrawings = drawings.filter(d => d.page_index === detectedIdx);
                 if (pageDrawings.length === 0) return;
 
+                const pageRect = pageLayer.getBoundingClientRect();
+                const pxToVB = pageRect.width > 0 ? (100 / pageRect.width) : 0.15;
+
                 const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
                 svg.setAttribute('class', 'pdf-drawing-overlay');
                 svg.setAttribute('viewBox', '0 0 100 100');
@@ -1159,6 +1246,96 @@ const PdfViewer = ({
                     overflow: visible;
                 `;
 
+                // Helper: add drag + resize to a foreignObject-based drawing
+                const addDragResize = (fo: SVGForeignObjectElement, d: any, div: HTMLElement) => {
+                    fo.style.pointerEvents = 'auto';
+                    fo.style.cursor = 'grab';
+
+                    // Resize handle (bottom-right corner)
+                    const handle = document.createElement('div');
+                    handle.style.cssText = `position: absolute; right: 0; bottom: 0; width: 10px; height: 10px; cursor: nwse-resize; background: rgba(59,130,246,0.5); border-radius: 2px; pointer-events: auto; opacity: 0; transition: opacity 0.15s;`;
+                    // Show handle on hover over foreignObject
+                    fo.addEventListener('mouseenter', () => { handle.style.opacity = '1'; });
+                    fo.addEventListener('mouseleave', () => { handle.style.opacity = '0'; });
+
+                    // Wrap content in a positioned container
+                    const wrapper = document.createElement('div');
+                    wrapper.style.cssText = 'position: relative; width: 100%; height: 100%; pointer-events: none;';
+                    wrapper.appendChild(div);
+                    wrapper.appendChild(handle);
+                    fo.appendChild(wrapper);
+
+                    // Resize
+                    handle.addEventListener('mousedown', (e: MouseEvent) => {
+                        if (e.button !== 0) return;
+                        e.preventDefault(); e.stopPropagation();
+                        const pr = pageLayer.getBoundingClientRect();
+                        const startW = parseFloat(fo.getAttribute('width') || String(d.width));
+                        const startH = parseFloat(fo.getAttribute('height') || String(d.height));
+                        const startMx = e.clientX;
+                        const startMy = e.clientY;
+                        const onMove = (me: MouseEvent) => {
+                            const dw = ((me.clientX - startMx) / pr.width) * 100;
+                            const dh = ((me.clientY - startMy) / pr.height) * 100;
+                            const newW = Math.max(5, startW + dw);
+                            const newH = Math.max(2, startH + dh);
+                            fo.setAttribute('width', String(newW));
+                            fo.setAttribute('height', String(newH));
+                            if (d.drawing_type === 'typed_signature') {
+                                div.style.fontSize = `${newH * 0.8}px`;
+                            } else if (d.drawing_type === 'text') {
+                                div.style.fontSize = `${newH * 0.7}px`;
+                            }
+                        };
+                        const onUp = async (me: MouseEvent) => {
+                            document.removeEventListener('mousemove', onMove);
+                            document.removeEventListener('mouseup', onUp);
+                            const dw = ((me.clientX - startMx) / pr.width) * 100;
+                            const dh = ((me.clientY - startMy) / pr.height) * 100;
+                            const newW = Math.max(5, startW + dw);
+                            const newH = Math.max(2, startH + dh);
+                            if (Math.abs(dw) > 0.3 || Math.abs(dh) > 0.3) {
+                                await (window as any).api.updatePdfDrawing({ id: d.id, width: newW, height: newH });
+                                loadDrawings();
+                            }
+                        };
+                        document.addEventListener('mousemove', onMove);
+                        document.addEventListener('mouseup', onUp);
+                    });
+
+                    // Drag (on the foreignObject itself, not the handle)
+                    let dragStart: { mx: number; my: number; ox: number; oy: number } | null = null;
+                    fo.addEventListener('mousedown', (e: MouseEvent) => {
+                        if (e.button !== 0 || (e.target as HTMLElement) === handle) return;
+                        e.preventDefault(); e.stopPropagation();
+                        fo.style.cursor = 'grabbing';
+                        const pr = pageLayer.getBoundingClientRect();
+                        dragStart = { mx: e.clientX, my: e.clientY, ox: d.position_x, oy: d.position_y };
+                        const onMove = (me: MouseEvent) => {
+                            if (!dragStart) return;
+                            const dx = ((me.clientX - dragStart.mx) / pr.width) * 100;
+                            const dy = ((me.clientY - dragStart.my) / pr.height) * 100;
+                            fo.setAttribute('x', String(dragStart.ox + dx));
+                            fo.setAttribute('y', String(dragStart.oy + dy));
+                        };
+                        const onUp = async (me: MouseEvent) => {
+                            document.removeEventListener('mousemove', onMove);
+                            document.removeEventListener('mouseup', onUp);
+                            fo.style.cursor = 'grab';
+                            if (!dragStart) return;
+                            const dx = ((me.clientX - dragStart.mx) / pr.width) * 100;
+                            const dy = ((me.clientY - dragStart.my) / pr.height) * 100;
+                            dragStart = null;
+                            if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
+                                await (window as any).api.updatePdfDrawing({ id: d.id, positionX: d.position_x + dx, positionY: d.position_y + dy });
+                                loadDrawings();
+                            }
+                        };
+                        document.addEventListener('mousemove', onMove);
+                        document.addEventListener('mouseup', onUp);
+                    });
+                };
+
                 pageDrawings.forEach((d) => {
                     if (d.drawing_type === 'typed_signature') {
                         const parts = d.svg_path.split(':');
@@ -1168,12 +1345,13 @@ const PdfViewer = ({
                             const fo = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
                             fo.setAttribute('x', String(d.position_x));
                             fo.setAttribute('y', String(d.position_y));
-                            fo.setAttribute('width', String(d.width));
-                            fo.setAttribute('height', String(d.height));
+                            fo.setAttribute('width', String(Math.max(d.width, 50)));
+                            fo.setAttribute('height', String(Math.max(d.height, 8)));
+                            fo.setAttribute('overflow', 'visible');
                             const div = document.createElement('div');
-                            div.style.cssText = `font-family: ${fontFamily}; font-size: 6px; color: ${d.stroke_color}; white-space: nowrap; line-height: 1;`;
+                            div.style.cssText = `font-family: ${fontFamily}; font-size: ${d.height * 0.8}px; color: ${d.stroke_color}; white-space: nowrap; line-height: 1; overflow: visible; pointer-events: none;`;
                             div.textContent = name;
-                            fo.appendChild(div);
+                            addDragResize(fo, d, div);
                             svg.appendChild(fo);
                         }
                     } else if (d.drawing_type === 'text') {
@@ -1183,14 +1361,35 @@ const PdfViewer = ({
                         fo.setAttribute('y', String(d.position_y));
                         fo.setAttribute('width', String(Math.max(d.width, 40)));
                         fo.setAttribute('height', String(Math.max(d.height, 5)));
+                        fo.setAttribute('overflow', 'visible');
                         const div = document.createElement('div');
-                        div.style.cssText = `font-family: sans-serif; font-size: 4px; color: ${d.stroke_color}; white-space: nowrap; line-height: 1.2;`;
+                        div.style.cssText = `font-family: sans-serif; font-size: ${d.height * 0.7}px; color: ${d.stroke_color}; white-space: nowrap; line-height: 1.2; pointer-events: none;`;
                         div.textContent = text;
-                        fo.appendChild(div);
+                        addDragResize(fo, d, div);
                         svg.appendChild(fo);
                     } else if (d.drawing_type === 'signature') {
                         const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
                         g.setAttribute('transform', `translate(${d.position_x}, ${d.position_y}) scale(${d.width / 100}, ${d.height / 100})`);
+                        const hitRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                        hitRect.setAttribute('x', '0'); hitRect.setAttribute('y', '0');
+                        hitRect.setAttribute('width', '100'); hitRect.setAttribute('height', '100');
+                        hitRect.setAttribute('fill', 'transparent');
+                        hitRect.style.pointerEvents = 'auto';
+                        hitRect.style.cursor = 'grab';
+                        g.appendChild(hitRect);
+                        // Resize handle for drawn signature
+                        const resizeRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                        resizeRect.setAttribute('x', '90'); resizeRect.setAttribute('y', '90');
+                        resizeRect.setAttribute('width', '10'); resizeRect.setAttribute('height', '10');
+                        resizeRect.setAttribute('fill', 'rgba(59,130,246,0.5)');
+                        resizeRect.setAttribute('rx', '2');
+                        resizeRect.style.pointerEvents = 'auto';
+                        resizeRect.style.cursor = 'nwse-resize';
+                        resizeRect.style.opacity = '0';
+                        resizeRect.style.transition = 'opacity 0.15s';
+                        g.addEventListener('mouseenter', () => { resizeRect.style.opacity = '1'; });
+                        g.addEventListener('mouseleave', () => { resizeRect.style.opacity = '0'; });
+                        g.appendChild(resizeRect);
                         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                         path.setAttribute('d', d.svg_path);
                         path.setAttribute('fill', 'none');
@@ -1198,7 +1397,71 @@ const PdfViewer = ({
                         path.setAttribute('stroke-width', String(d.stroke_width * (100 / d.width)));
                         path.setAttribute('stroke-linecap', 'round');
                         path.setAttribute('stroke-linejoin', 'round');
+                        path.style.pointerEvents = 'none';
                         g.appendChild(path);
+                        // Resize handler
+                        resizeRect.addEventListener('mousedown', (e: MouseEvent) => {
+                            if (e.button !== 0) return;
+                            e.preventDefault(); e.stopPropagation();
+                            const pr = pageLayer.getBoundingClientRect();
+                            const startW = d.width;
+                            const startH = d.height;
+                            const startMx = e.clientX;
+                            const startMy = e.clientY;
+                            const onMove = (me: MouseEvent) => {
+                                const dw = ((me.clientX - startMx) / pr.width) * 100;
+                                const dh = ((me.clientY - startMy) / pr.height) * 100;
+                                const newW = Math.max(5, startW + dw);
+                                const newH = Math.max(2, startH + dh);
+                                g.setAttribute('transform', `translate(${d.position_x}, ${d.position_y}) scale(${newW / 100}, ${newH / 100})`);
+                            };
+                            const onUp = async (me: MouseEvent) => {
+                                document.removeEventListener('mousemove', onMove);
+                                document.removeEventListener('mouseup', onUp);
+                                const dw = ((me.clientX - startMx) / pr.width) * 100;
+                                const dh = ((me.clientY - startMy) / pr.height) * 100;
+                                const newW = Math.max(5, startW + dw);
+                                const newH = Math.max(2, startH + dh);
+                                if (Math.abs(dw) > 0.3 || Math.abs(dh) > 0.3) {
+                                    await (window as any).api.updatePdfDrawing({ id: d.id, width: newW, height: newH });
+                                    loadDrawings();
+                                }
+                            };
+                            document.addEventListener('mousemove', onMove);
+                            document.addEventListener('mouseup', onUp);
+                        });
+                        // Drag handler
+                        let sigDragStart: { mx: number; my: number; ox: number; oy: number } | null = null;
+                        hitRect.addEventListener('mousedown', (e: MouseEvent) => {
+                            if (e.button !== 0) return;
+                            e.preventDefault(); e.stopPropagation();
+                            hitRect.style.cursor = 'grabbing';
+                            const pr = pageLayer.getBoundingClientRect();
+                            sigDragStart = { mx: e.clientX, my: e.clientY, ox: d.position_x, oy: d.position_y };
+                            const onMove = (me: MouseEvent) => {
+                                if (!sigDragStart) return;
+                                const dx = ((me.clientX - sigDragStart.mx) / pr.width) * 100;
+                                const dy = ((me.clientY - sigDragStart.my) / pr.height) * 100;
+                                g.setAttribute('transform', `translate(${sigDragStart.ox + dx}, ${sigDragStart.oy + dy}) scale(${d.width / 100}, ${d.height / 100})`);
+                            };
+                            const onUp = async (me: MouseEvent) => {
+                                document.removeEventListener('mousemove', onMove);
+                                document.removeEventListener('mouseup', onUp);
+                                hitRect.style.cursor = 'grab';
+                                if (!sigDragStart) return;
+                                const dx = ((me.clientX - sigDragStart.mx) / pr.width) * 100;
+                                const dy = ((me.clientY - sigDragStart.my) / pr.height) * 100;
+                                const newX = sigDragStart.ox + dx;
+                                const newY = sigDragStart.oy + dy;
+                                sigDragStart = null;
+                                if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
+                                    await (window as any).api.updatePdfDrawing({ id: d.id, positionX: newX, positionY: newY });
+                                    loadDrawings();
+                                }
+                            };
+                            document.addEventListener('mousemove', onMove);
+                            document.addEventListener('mouseup', onUp);
+                        });
                         svg.appendChild(g);
                     } else {
 
@@ -1206,7 +1469,7 @@ const PdfViewer = ({
                         path.setAttribute('d', d.svg_path);
                         path.setAttribute('fill', 'none');
                         path.setAttribute('stroke', d.stroke_color);
-                        path.setAttribute('stroke-width', String(d.stroke_width * 0.4));
+                        path.setAttribute('stroke-width', String(d.stroke_width * pxToVB));
                         path.setAttribute('stroke-linecap', 'round');
                         path.setAttribute('stroke-linejoin', 'round');
                         svg.appendChild(path);
@@ -1219,7 +1482,7 @@ const PdfViewer = ({
 
         const timer = setTimeout(renderDrawings, 300);
         return () => clearTimeout(timer);
-    }, [drawings, pdfData]);
+    }, [drawings, pdfData, loadDrawings]);
 
     useEffect(() => {
         if (!signaturePlacementMode || !currentSignature) return;
@@ -1590,7 +1853,7 @@ const PdfViewer = ({
                         <Download size={14} />
                     </button>
                     <button
-                        onClick={() => window.print()}
+                        onClick={() => handlePrintPdf()}
                         className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-white transition-colors"
                         title="Print"
                     >

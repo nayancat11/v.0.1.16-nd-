@@ -395,6 +395,24 @@ function register(ctx) {
     }
   });
 
+  ipcMain.handle('db:updatePdfDrawing', async (event, { id, positionX, positionY, width, height }) => {
+    try {
+      const fields = [];
+      const values = [];
+      if (positionX !== undefined) { fields.push('position_x = ?'); values.push(positionX); }
+      if (positionY !== undefined) { fields.push('position_y = ?'); values.push(positionY); }
+      if (width !== undefined) { fields.push('width = ?'); values.push(width); }
+      if (height !== undefined) { fields.push('height = ?'); values.push(height); }
+      if (fields.length === 0) return { success: false, error: 'No fields to update' };
+      values.push(id);
+      await dbQuery(`UPDATE pdf_drawings SET ${fields.join(', ')} WHERE id = ?`, values);
+      return { success: true };
+    } catch (error) {
+      console.error('[DB_UPDATE_DRAWING] Error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
   ipcMain.handle('db:deleteDrawing', async (event, { id }) => {
     try {
       await dbQuery('DELETE FROM pdf_drawings WHERE id = ?', [id]);

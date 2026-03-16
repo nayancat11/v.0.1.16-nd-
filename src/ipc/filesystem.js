@@ -19,6 +19,39 @@ function register(ctx) {
   };
 
   // ============================================
+  // File watchers
+  // ============================================
+  const fileWatchers = new Map();
+
+  ipcMain.handle('file:watch', async (event, filePath) => {
+    if (!filePath || fileWatchers.has(filePath)) return;
+    try {
+      const watcher = fs.watch(filePath, { persistent: false }, (eventType) => {
+        if (eventType === 'change') {
+          const win = getMainWindow();
+          if (win && !win.isDestroyed()) {
+            win.webContents.send('file:changed', filePath);
+          }
+        }
+      });
+      watcher.on('error', () => {
+        fileWatchers.delete(filePath);
+      });
+      fileWatchers.set(filePath, watcher);
+    } catch (e) {
+      console.error('[FILE-WATCH] Failed to watch:', filePath, e.message);
+    }
+  });
+
+  ipcMain.handle('file:unwatch', async (event, filePath) => {
+    const watcher = fileWatchers.get(filePath);
+    if (watcher) {
+      watcher.close();
+      fileWatchers.delete(filePath);
+    }
+  });
+
+  // ============================================
   // Helper: getFileType
   // ============================================
   function getFileType(filePath) {
@@ -983,9 +1016,12 @@ function register(ctx) {
         } else if (item.isFile()) {
           const ext = path.extname(item.name).toLowerCase();
           if (allowedExtensions.includes(ext)) {
+            let mtime = 0;
+            try { mtime = (await fsPromises.stat(itemPath)).mtimeMs; } catch {}
             result[item.name] = {
               type: 'file',
-              path: itemPath
+              path: itemPath,
+              mtime
             };
           }
         }

@@ -518,14 +518,13 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
 
                 if (key === 'a' && (
                     (event.metaKey && !event.ctrlKey) ||
-                    (!isMac && event.ctrlKey && !event.metaKey && !event.shiftKey) ||
                     (event.ctrlKey && event.shiftKey)
                 )) {
                     term.selectAll();
                     return false;
                 }
 
-                if (isMac && event.ctrlKey && !event.metaKey && !event.shiftKey && key === 'a') {
+                if (event.ctrlKey && !event.metaKey && !event.shiftKey && key === 'a') {
                     event.preventDefault();
                     event.stopPropagation();
                     if (isSessionReady.current) {

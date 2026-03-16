@@ -102,6 +102,7 @@ const Sidebar = (props: any) => {
     const [convoSearch, setConvoSearch] = useState('');
     const [fileSearch, setFileSearch] = useState('');
     const [fileTypeFilter, setFileTypeFilter] = useState<string>(() => localStorage.getItem('incognide_fileTypeFilter') || '');
+    const [fileSort, setFileSort] = useState<'name' | 'modified' | 'type'>(() => (localStorage.getItem('incognide_fileSort') as any) || 'name');
 
     const [draggedSection, setDraggedSection] = useState<string | null>(null);
     const [dropTargetSection, setDropTargetSection] = useState<string | null>(null);
@@ -211,6 +212,9 @@ const Sidebar = (props: any) => {
     useEffect(() => {
         localStorage.setItem('incognide_fileTypeFilter', fileTypeFilter);
     }, [fileTypeFilter]);
+    useEffect(() => {
+        localStorage.setItem('incognide_fileSort', fileSort);
+    }, [fileSort]);
 
     useEffect(() => {
         localStorage.setItem('incognide_filesSettings', JSON.stringify(filesSettings));
@@ -3933,6 +3937,18 @@ const renderFolderList = (structure) => {
                             </div>
                         </div>
                     )}
+                    <div className="flex items-center gap-0.5 px-1 py-0.5 border-t theme-border">
+                        <span className="text-[9px] text-gray-500 mr-1">Sort:</span>
+                        {([['name', 'A-Z'], ['modified', 'Date'], ['type', 'Type']] as const).map(([val, label]) => (
+                            <button
+                                key={val}
+                                onClick={() => setFileSort(val)}
+                                className={`px-1.5 py-0.5 text-[9px] rounded transition-colors ${fileSort === val ? 'bg-yellow-500/30 text-yellow-300' : 'text-gray-500 hover:text-gray-300 hover:bg-gray-700/50'}`}
+                            >
+                                {label}
+                            </button>
+                        ))}
+                    </div>
                     {showFileTypeFilter && (
                         <div className="px-1 py-1 border-t theme-border">
                             <div className="relative">
@@ -4024,7 +4040,6 @@ const renderFolderList = (structure) => {
         }
 
         items = items.filter(Boolean).sort((a, b) => {
-
             const aName = a.name || getFileName(a.path) || '';
             const bName = b.name || getFileName(b.path) || '';
             const aHidden = aName.startsWith('.');
@@ -4033,9 +4048,21 @@ const renderFolderList = (structure) => {
             const bIsDir = b.type === 'directory';
 
             if (aHidden !== bHidden) return aHidden ? 1 : -1;
-
             if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
 
+            if (fileSort === 'modified') {
+                const aTime = a.mtime || 0;
+                const bTime = b.mtime || 0;
+                if (aTime !== bTime) return bTime - aTime; // newest first
+                return aName.localeCompare(bName);
+            }
+            if (fileSort === 'type') {
+                const aExt = aName.includes('.') ? aName.split('.').pop()!.toLowerCase() : '';
+                const bExt = bName.includes('.') ? bName.split('.').pop()!.toLowerCase() : '';
+                const extCmp = aExt.localeCompare(bExt);
+                if (extCmp !== 0) return extCmp;
+                return aName.localeCompare(bName);
+            }
             return aName.localeCompare(bName);
         });
 

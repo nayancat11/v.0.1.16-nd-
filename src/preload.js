@@ -344,6 +344,7 @@ readDocxContent: (filePath) =>
 
     getDrawingsForFile: (filePath) => ipcRenderer.invoke('db:getDrawingsForFile', { filePath }),
     addPdfDrawing: (data) => ipcRenderer.invoke('db:addPdfDrawing', data),
+    updatePdfDrawing: (data) => ipcRenderer.invoke('db:updatePdfDrawing', data),
     deleteDrawing: (id) => ipcRenderer.invoke('db:deleteDrawing', { id }),
     clearDrawingsForPage: (filePath, pageIndex) => ipcRenderer.invoke('db:clearDrawingsForPage', { filePath, pageIndex }),
 
