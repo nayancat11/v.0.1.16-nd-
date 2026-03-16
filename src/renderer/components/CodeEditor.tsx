@@ -18,7 +18,7 @@ import { EditorState } from '@codemirror/state';
 import { tags as t } from '@lezer/highlight';
 import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 import { lintKeymap, linter, lintGutter, type Diagnostic } from '@codemirror/lint';
-import { BrainCircuit, Edit, FileText, MessageSquare, GitBranch, X, Play, HelpCircle } from 'lucide-react';
+import { BrainCircuit, Edit, FileText, MessageSquare, GitBranch, X, Play, HelpCircle, RefreshCw } from 'lucide-react';
 
 const appHighlightStyle = HighlightStyle.define([
     { tag: t.keyword, color: '#c678dd' },
@@ -679,6 +679,22 @@ const CodeEditorPane = ({
         return () => clearTimeout(timer);
     }, [fileContent, fileChanged, nodeId, contentDataRef, setRootLayoutNode]);
 
+    const reloadFromDisk = useCallback(async () => {
+        const pd = contentDataRef.current[nodeId];
+        if (!pd?.contentId || pd.isUntitled) return;
+        try {
+            const result = await (window as any).api.readFileContent(pd.contentId);
+            const diskContent = typeof result === 'string' ? result : result?.content;
+            if (diskContent != null) {
+                pd.fileContent = diskContent;
+                pd.fileChanged = false;
+                setRootLayoutNode(p => ({ ...p }));
+            }
+        } catch (e) {
+            console.error('[CodeEditor] Reload failed:', e);
+        }
+    }, [nodeId, contentDataRef, setRootLayoutNode]);
+
     useEffect(() => {
         const currentPaneData = contentDataRef.current[nodeId];
         const fp = currentPaneData?.contentId;
@@ -816,6 +832,13 @@ const CodeEditorPane = ({
                                 </button>
                             );
                         })}
+                        <button
+                            onClick={reloadFromDisk}
+                            className="p-0.5 rounded hover:bg-black/60 text-gray-500 hover:text-gray-300"
+                            title="Reload file from disk"
+                        >
+                            <RefreshCw size={12} />
+                        </button>
                         <button
                             onClick={() => setShowKeybindGuide(prev => !prev)}
                             className={`p-0.5 rounded hover:bg-black/60 ${showKeybindGuide ? 'text-purple-400' : 'text-gray-500 hover:text-gray-300'}`}

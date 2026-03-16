@@ -145,13 +145,30 @@ async function open_pane(
 
   ctx.performSplit(activePath, position, type, contentId);
 
-  await new Promise(resolve => setTimeout(resolve, 50));
-
+  // Wait for the pane to appear in contentDataRef
+  // Terminals need extra time for the PTY session to initialize
+  const maxWait = type === 'terminal' ? 2000 : 200;
+  const startTime = Date.now();
   let actualPaneId: string | null = null;
-  for (const [paneId, data] of Object.entries(ctx.contentDataRef.current)) {
-    if ((data as any).contentId === contentId && (data as any).contentType === type) {
-      actualPaneId = paneId;
-      break;
+
+  while (Date.now() - startTime < maxWait) {
+    await new Promise(resolve => setTimeout(resolve, 50));
+    for (const [paneId, data] of Object.entries(ctx.contentDataRef.current)) {
+      if ((data as any).contentId === contentId && (data as any).contentType === type) {
+        actualPaneId = paneId;
+        break;
+      }
+    }
+    if (actualPaneId) {
+      // For terminals, also wait until the backend session exists
+      if (type === 'terminal') {
+        try {
+          const writeResult = await (window as any).api?.writeToTerminal?.({ id: contentId, data: '' });
+          if (writeResult?.success) break;
+        } catch {}
+      } else {
+        break;
+      }
     }
   }
 

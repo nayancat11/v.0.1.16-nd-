@@ -45,6 +45,8 @@ readDocxContent: (filePath) =>
 
     openNewWindow: (path) => ipcRenderer.invoke('open-new-window', path),
     getWindowCount: () => ipcRenderer.invoke('get-window-count'),
+    getAllWindowsInfo: () => ipcRenderer.invoke('get-all-windows-info'),
+    closeWindowById: (windowId) => ipcRenderer.invoke('close-window-by-id', windowId),
     openInNativeExplorer: (path) => ipcRenderer.invoke('open-in-native-explorer', path),
 
     deleteConversation: (id) => ipcRenderer.invoke('deleteConversation', id),
@@ -342,6 +344,7 @@ readDocxContent: (filePath) =>
 
     getDrawingsForFile: (filePath) => ipcRenderer.invoke('db:getDrawingsForFile', { filePath }),
     addPdfDrawing: (data) => ipcRenderer.invoke('db:addPdfDrawing', data),
+    updatePdfDrawing: (data) => ipcRenderer.invoke('db:updatePdfDrawing', data),
     deleteDrawing: (id) => ipcRenderer.invoke('db:deleteDrawing', { id }),
     clearDrawingsForPage: (filePath, pageIndex) => ipcRenderer.invoke('db:clearDrawingsForPage', { filePath, pageIndex }),
 

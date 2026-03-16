@@ -60,8 +60,9 @@ import FolderViewer from './FolderViewer';
 import PathSwitcher from './PathSwitcher';
 import CronDaemonPanel from './CronDaemonPanel';
 import MemoryManager from './MemoryManager';
+import WindowManagerPane from './WindowManagerPane';
 import SearchPane from './SearchPane';
-import DownloadManager, { getActiveDownloadsCount, setDownloadToastCallback } from './DownloadManager';
+import DownloadManager, { getActiveDownloadsCount, setDownloadToastCallback, setDownloadAllCompleteCallback } from './DownloadManager';
 import { LiveProvider, LivePreview, LiveError } from 'react-live';
 // Components for tile jinx runtime rendering
 import GraphViewer from './GraphViewer';
@@ -277,6 +278,9 @@ const ChatInterface = ({ onRerunSetup }: { onRerunSetup?: () => void }) => {
     const openModeRef = useRef(openMode);
     openModeRef.current = openMode;
 
+    // Pane update emitter - must be before useLayoutManager so it can notify specific panes
+    const paneUpdateEmitter = useRef(new EventTarget()).current;
+
     // Layout manager from useLayoutManager hook
     const {
         rootLayoutNode, setRootLayoutNode, setRootLayoutNodeQuiet, contentVersion,
@@ -287,7 +291,7 @@ const ChatInterface = ({ onRerunSetup }: { onRerunSetup?: () => void }) => {
         performSplitRef, closeContentPaneRef, updateContentPaneRef,
         updateContentPane, performSplit, closeContentPane,
         findEmptyPaneId, createAndAddPaneNodeToLayout, addPaneOrTab, moveContentPane,
-    } = useLayoutManager({ trackActivity, openModeRef });
+    } = useLayoutManager({ trackActivity, openModeRef, paneUpdateEmitter });
 
     const [isEditingPath, setIsEditingPath] = useState(false);
     const [editedPath, setEditedPath] = useState('');
@@ -295,6 +299,7 @@ const ChatInterface = ({ onRerunSetup }: { onRerunSetup?: () => void }) => {
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [downloadManagerOpen, setDownloadManagerOpen] = useState(false);
     const [downloadToast, setDownloadToast] = useState<{message: string; filename: string} | null>(null);
+    const [showDownloadCompletePrompt, setShowDownloadCompletePrompt] = useState(false);
     const [updateAvailable, setUpdateAvailable] = useState<{latestVersion: string; releaseUrl: string} | null>(null);
     const [appVersion, setAppVersion] = useState<string>('');
     const [projectEnvEditorOpen, setProjectEnvEditorOpen] = useState(false);
@@ -578,6 +583,9 @@ const ChatInterface = ({ onRerunSetup }: { onRerunSetup?: () => void }) => {
             // Auto-dismiss after 4 seconds
             setTimeout(() => setDownloadToast(null), 4000);
         });
+        setDownloadAllCompleteCallback(() => {
+            setShowDownloadCompletePrompt(true);
+        });
     }, []);
 
     // Get app version and check for updates on load
@@ -632,7 +640,6 @@ const ChatInterface = ({ onRerunSetup }: { onRerunSetup?: () => void }) => {
     const [displayedMessageCount, setDisplayedMessageCount] = useState(10);
     const [loadingMoreMessages, setLoadingMoreMessages] = useState(false);
     const streamToPaneRef = useRef({});
-    const paneUpdateEmitter = useRef(new EventTarget()).current;
     const notifyAllPanes = useCallback(() => {
         for (const paneId of Object.keys(contentDataRef.current)) {
             paneUpdateEmitter.dispatchEvent(new CustomEvent('pane-update', { detail: { paneId } }));
@@ -3438,6 +3445,11 @@ const renderMemoryManagerPane = useCallback(({ nodeId }: { nodeId: string }) => 
     );
 }, [currentNPC]);
 
+// Render WindowManager pane
+const renderWindowManagerPane = useCallback(({ nodeId }: { nodeId: string }) => {
+    return <WindowManagerPane />;
+}, []);
+
 // Render CronDaemonPanel pane (for pane-based viewing)
 const renderCronDaemonPane = useCallback(({ nodeId }: { nodeId: string }) => {
     return (
@@ -4199,9 +4211,11 @@ const renderSearchPane = useCallback(({ nodeId, initialQuery }: { nodeId: string
         <SearchPane
             initialQuery={initialQuery || ''}
             currentPath={currentPathRef.current}
+            onOpenFile={(path: string) => handleFileClickRef.current?.(path)}
+            onOpenConversation={(id: string) => createAndAddPaneNodeToLayout('chat', id)}
         />
     );
-}, []);
+}, [createAndAddPaneNodeToLayout]);
 
 const renderBrowserViewer = useCallback(({ nodeId, hasTabBar, onToggleZen, isZenMode }) => {
     return (
@@ -5152,12 +5166,10 @@ ${contextPrompt}`;
         createHelpPaneRef.current = createHelpPane;
     }, [createSettingsPane, createSearchPane, createHelpPane]);
 
-    // Create Git pane
-    const createGitPane = useCallback(async () => {
-        const newPaneId = generateId();
-        contentDataRef.current[newPaneId] = { contentType: 'git', contentId: 'git' };
-        addPaneOrTab(newPaneId);
-    }, []);
+    // Create Git pane (uses createAndAddPaneNodeToLayout for singleton detection and proper layout refresh)
+    const createGitPane = useCallback(() => {
+        createAndAddPaneNodeToLayout('git', 'git');
+    }, [createAndAddPaneNodeToLayout]);
 
     // Create untitled text file directly without modal
     const createUntitledTextFile = useCallback(() => {
@@ -6149,6 +6161,30 @@ ${contextPrompt}`;
         </div>
         <button
             onClick={(e) => { e.stopPropagation(); setDownloadToast(null); }}
+            className="p-1 hover:bg-white/20 rounded"
+        >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+        </button>
+    </div>
+)}
+
+{/* Download complete prompt */}
+{showDownloadCompletePrompt && (
+    <div className="fixed bottom-4 right-4 z-50 flex items-center gap-3 px-4 py-3 bg-green-600 text-white rounded-lg shadow-lg animate-in slide-in-from-bottom-5">
+        <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+        </svg>
+        <div className="text-sm font-medium">All downloads complete</div>
+        <button
+            onClick={() => { (window as any).api?.closeWindow?.(); }}
+            className="px-3 py-1 bg-white/20 hover:bg-white/30 rounded text-sm font-medium"
+        >
+            Close App
+        </button>
+        <button
+            onClick={() => setShowDownloadCompletePrompt(false)}
             className="p-1 hover:bg-white/20 rounded"
         >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -7433,6 +7469,7 @@ const paneRenderers = useMemo(() => ({
     tilejinx: renderTileJinxPane,
     python: renderTerminalView,
     branches: renderBranchComparisonPane,
+    windowmanager: renderWindowManagerPane,
 }), [
     renderChatView, renderFileEditor, renderTerminalView, renderPdfViewer,
     renderCsvViewer, renderDocxViewer, renderBrowserViewer, renderPptxViewer,
@@ -7443,7 +7480,7 @@ const paneRenderers = useMemo(() => ({
     renderScherzoPane, renderLibraryViewerPane, renderHelpPane, renderGitPane,
     renderFolderViewerPane, renderProjectEnvPane, renderDiskUsagePane, renderMemoryManagerPane,
     renderCronDaemonPane, renderSearchPane, renderMarkdownPreviewPane, renderHtmlPreviewPane,
-    renderTileJinxPane, renderBranchComparisonPane,
+    renderTileJinxPane, renderBranchComparisonPane, renderWindowManagerPane,
 ]);
 
 const layoutComponentApi = useMemo(() => ({
@@ -8545,7 +8582,19 @@ const renderMainContent = () => {
                                                     {recentPaths.slice(0, 10).map(p => (
                                                         <button
                                                             key={p}
-                                                            onClick={() => setCurrentPath(p)}
+                                                            onClick={async () => {
+                                                                // Check if another window already has this folder open
+                                                                const allWindows = await (window as any).api?.getAllWindowsInfo?.() || [];
+                                                                const alreadyOpen = allWindows.find((w: any) =>
+                                                                    w.folderPath && w.folderPath.replace(/\/+$/, '') === p.replace(/\/+$/, '')
+                                                                );
+                                                                if (alreadyOpen) {
+                                                                    // Focus that window instead
+                                                                    await (window as any).api?.openNewWindow?.(p);
+                                                                } else {
+                                                                    setCurrentPath(p);
+                                                                }
+                                                            }}
                                                             className="flex items-center gap-2 px-3 py-2 rounded theme-hover text-left"
                                                         >
                                                             <Folder size={14} className="text-purple-400 flex-shrink-0" />

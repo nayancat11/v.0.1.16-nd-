@@ -102,6 +102,7 @@ const Sidebar = (props: any) => {
     const [convoSearch, setConvoSearch] = useState('');
     const [fileSearch, setFileSearch] = useState('');
     const [fileTypeFilter, setFileTypeFilter] = useState<string>(() => localStorage.getItem('incognide_fileTypeFilter') || '');
+    const [fileSort, setFileSort] = useState<'name' | 'modified' | 'type'>(() => (localStorage.getItem('incognide_fileSort') as any) || 'name');
 
     const [draggedSection, setDraggedSection] = useState<string | null>(null);
     const [dropTargetSection, setDropTargetSection] = useState<string | null>(null);
@@ -211,6 +212,9 @@ const Sidebar = (props: any) => {
     useEffect(() => {
         localStorage.setItem('incognide_fileTypeFilter', fileTypeFilter);
     }, [fileTypeFilter]);
+    useEffect(() => {
+        localStorage.setItem('incognide_fileSort', fileSort);
+    }, [fileSort]);
 
     useEffect(() => {
         localStorage.setItem('incognide_filesSettings', JSON.stringify(filesSettings));
@@ -369,6 +373,7 @@ const Sidebar = (props: any) => {
 
     // Smart filetype sense: count extensions in folder structure, sort by frequency
     const sortedFileTypes = useMemo(() => {
+        const IGNORED_DIRS = new Set(['node_modules', '.git', '__pycache__', '.venv', 'venv', 'env', 'dist', 'build', '.next', '.nuxt', 'out', '.cache', '.tox', '.mypy_cache', '.pytest_cache', 'site-packages', 'target', 'vendor', 'bower_components', '.svn', '.hg', 'coverage', '.nyc_output', '.gradle', '.idea', '.vscode']);
         const extCounts: Record<string, number> = {};
         const countExts = (struct: any) => {
             if (!struct) return;
@@ -380,7 +385,9 @@ const Sidebar = (props: any) => {
                         extCounts[ext] = (extCounts[ext] || 0) + 1;
                     }
                 } else if (item?.type === 'directory' && item?.children) {
-                    countExts(item.children);
+                    if (!IGNORED_DIRS.has(name) && !name.endsWith('.egg-info')) {
+                        countExts(item.children);
+                    }
                 }
             });
         };
@@ -2331,6 +2338,31 @@ const renderWebsiteList = () => {
                     } catch { return 'other'; }
                 };
 
+                // Build a map of domain -> set of first path segments to know which domains need path subdivision
+                const domainPathSegments = new Map<string, Set<string>>();
+                allItems.forEach(item => {
+                    try {
+                        const u = new URL(item.url);
+                        const domain = getDomain(item.url);
+                        const seg = u.pathname.split('/').filter(Boolean)[0] || '';
+                        if (!domainPathSegments.has(domain)) domainPathSegments.set(domain, new Set());
+                        if (seg) domainPathSegments.get(domain)!.add(seg);
+                    } catch {}
+                });
+
+                const getDomainGroup = (url: string) => {
+                    try {
+                        const u = new URL(url);
+                        const domain = getDomain(url);
+                        const seg = u.pathname.split('/').filter(Boolean)[0] || '';
+                        const segments = domainPathSegments.get(domain);
+                        if (seg && segments && segments.size > 1) {
+                            return `${domain}/${seg}`;
+                        }
+                        return domain;
+                    } catch { return 'other'; }
+                };
+
                 const getTimeGroup = (item: any) => {
                     const ts = new Date(item.timestamp || item.lastVisited || Date.now()).getTime();
                     const now = new Date();
@@ -2441,7 +2473,7 @@ const renderWebsiteList = () => {
                     {groupBy === 'domain' && (() => {
                         const domainGroups = new Map<string, any[]>();
                         allItems.forEach(item => {
-                            const domain = getDomain(item.url);
+                            const domain = getDomainGroup(item.url);
                             if (!domainGroups.has(domain)) domainGroups.set(domain, []);
                             domainGroups.get(domain)!.push(item);
                         });
@@ -2449,13 +2481,14 @@ const renderWebsiteList = () => {
                             .sort((a, b) => b[1].length - a[1].length)
                             .map(([domain, items]) => {
                                 const isExpanded = historyGroupExpanded.has(domain);
+                                const faviconDomain = domain.split('/')[0];
                                 return (
                                     <div key={domain} className="border-b theme-border/50">
                                         {renderWebsiteGroupHeader(
                                             domain, items.length, isExpanded,
                                             () => setHistoryGroupExpanded(prev => { const next = new Set(prev); if (next.has(domain)) next.delete(domain); else next.add(domain); return next; }),
                                             'text-purple-300',
-                                            <img src={`https://www.google.com/s2/favicons?domain=${domain}&sz=32`} alt="" className="w-3.5 h-3.5 flex-shrink-0 rounded" onError={(e: any) => { e.target.style.display = 'none'; }} />
+                                            <img src={`https://www.google.com/s2/favicons?domain=${faviconDomain}&sz=32`} alt="" className="w-3.5 h-3.5 flex-shrink-0 rounded" onError={(e: any) => { e.target.style.display = 'none'; }} />
                                         )}
                                         {isExpanded && items.map(item => renderWebsiteItem(item, { indent: true, showTime: true, showType: true }))}
                                     </div>
@@ -3904,6 +3937,18 @@ const renderFolderList = (structure) => {
                             </div>
                         </div>
                     )}
+                    <div className="flex items-center gap-0.5 px-1 py-0.5 border-t theme-border">
+                        <span className="text-[9px] text-gray-500 mr-1">Sort:</span>
+                        {([['name', 'A-Z'], ['modified', 'Date'], ['type', 'Type']] as const).map(([val, label]) => (
+                            <button
+                                key={val}
+                                onClick={() => setFileSort(val)}
+                                className={`px-1.5 py-0.5 text-[9px] rounded transition-colors ${fileSort === val ? 'bg-yellow-500/30 text-yellow-300' : 'text-gray-500 hover:text-gray-300 hover:bg-gray-700/50'}`}
+                            >
+                                {label}
+                            </button>
+                        ))}
+                    </div>
                     {showFileTypeFilter && (
                         <div className="px-1 py-1 border-t theme-border">
                             <div className="relative">
@@ -3995,7 +4040,6 @@ const renderFolderList = (structure) => {
         }
 
         items = items.filter(Boolean).sort((a, b) => {
-
             const aName = a.name || getFileName(a.path) || '';
             const bName = b.name || getFileName(b.path) || '';
             const aHidden = aName.startsWith('.');
@@ -4004,9 +4048,21 @@ const renderFolderList = (structure) => {
             const bIsDir = b.type === 'directory';
 
             if (aHidden !== bHidden) return aHidden ? 1 : -1;
-
             if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
 
+            if (fileSort === 'modified') {
+                const aTime = a.mtime || 0;
+                const bTime = b.mtime || 0;
+                if (aTime !== bTime) return bTime - aTime; // newest first
+                return aName.localeCompare(bName);
+            }
+            if (fileSort === 'type') {
+                const aExt = aName.includes('.') ? aName.split('.').pop()!.toLowerCase() : '';
+                const bExt = bName.includes('.') ? bName.split('.').pop()!.toLowerCase() : '';
+                const extCmp = aExt.localeCompare(bExt);
+                if (extCmp !== 0) return extCmp;
+                return aName.localeCompare(bName);
+            }
             return aName.localeCompare(bName);
         });
 
@@ -6067,6 +6123,13 @@ return (
 
         {!sidebarCollapsed && (
         <div className="flex items-center border-t theme-border" style={{ height: bottomBarHeight }}>
+            <button
+                onClick={() => createAndAddPaneNodeToLayout?.('windowmanager', 'windowmanager')}
+                className="flex-1 flex items-center justify-center h-full hover:bg-teal-500/20 transition-all border-r border-gray-700"
+                title="Window Manager"
+            >
+                <Layers size={16} className="text-gray-600 dark:text-gray-400" />
+            </button>
             <button
                 onClick={() => setBottomGridCollapsed(!bottomGridCollapsed)}
                 className="flex-1 flex items-center justify-center h-full hover:bg-teal-500/20 transition-all border-r border-gray-700"

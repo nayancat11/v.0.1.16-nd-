@@ -336,6 +336,21 @@ export const LayoutNode = memo(({ node, path, component: componentRef }) => {
             return () => emitter.removeEventListener('pane-update', handler);
         }, [node.id]);
 
+        // Clear drag overlay if drag ends anywhere (prevents stuck green/blue indicators)
+        useEffect(() => {
+            const clearDrag = () => {
+                dragCounterRef.current = 0;
+                setLocalDragOver(false);
+                setLocalDropSide(null);
+            };
+            document.addEventListener('dragend', clearDrag);
+            document.addEventListener('drop', clearDrag);
+            return () => {
+                document.removeEventListener('dragend', clearDrag);
+                document.removeEventListener('drop', clearDrag);
+            };
+        }, []);
+
         const onDrop = (e, side) => {
             e.preventDefault();
             e.stopPropagation();
@@ -355,6 +370,7 @@ export const LayoutNode = memo(({ node, path, component: componentRef }) => {
                             const targetTitle = targetPaneData.contentType === 'browser'
                                 ? (targetPaneData.browserUrl || 'Browser')
                                 : (getFileName(targetPaneData.contentId) || targetPaneData.contentType);
+                            const targetTitle2 = targetPaneData.contentType === 'terminal' ? 'Terminal' : targetTitle;
                             targetPaneData.tabs = [{
                                 id: `tab_${Date.now()}_0`,
                                 contentType: targetPaneData.contentType,
@@ -363,7 +379,8 @@ export const LayoutNode = memo(({ node, path, component: componentRef }) => {
                                 fileContent: targetPaneData.fileContent,
                                 fileChanged: targetPaneData.fileChanged,
                                 _scrollTopPos: targetPaneData._scrollTopPos,
-                                title: targetTitle
+                                shellType: targetPaneData.shellType,
+                                title: targetTitle2
                             }];
                             targetPaneData.activeTabIndex = 0;
                         }
@@ -386,9 +403,11 @@ export const LayoutNode = memo(({ node, path, component: componentRef }) => {
                             });
                         } else {
 
-                            const sourceTitle = sourcePaneData.contentType === 'browser'
-                                ? (sourcePaneData.browserUrl || 'Browser')
-                                : (getFileName(sourcePaneData.contentId) || sourcePaneData.contentType);
+                            const sourceTitle = sourcePaneData.contentType === 'terminal'
+                                ? 'Terminal'
+                                : sourcePaneData.contentType === 'browser'
+                                    ? (sourcePaneData.browserUrl || 'Browser')
+                                    : (getFileName(sourcePaneData.contentId) || sourcePaneData.contentType);
                             targetPaneData.tabs.push({
                                 id: `tab_${Date.now()}_${targetPaneData.tabs.length}`,
                                 contentType: sourcePaneData.contentType,
@@ -397,6 +416,7 @@ export const LayoutNode = memo(({ node, path, component: componentRef }) => {
                                 fileContent: sourcePaneData.fileContent,
                                 fileChanged: sourcePaneData.fileChanged,
                                 _scrollTopPos: sourcePaneData._scrollTopPos,
+                                shellType: sourcePaneData.shellType,
                                 title: sourceTitle
                             });
                         }
@@ -408,6 +428,10 @@ export const LayoutNode = memo(({ node, path, component: componentRef }) => {
 
                         if (activeTab.contentType === 'browser' && activeTab.browserUrl) {
                             targetPaneData.browserUrl = activeTab.browserUrl;
+                        }
+
+                        if (activeTab.contentType === 'terminal' && activeTab.shellType) {
+                            targetPaneData.shellType = activeTab.shellType;
                         }
 
                         if ((activeTab.contentType === 'editor' || activeTab.contentType === 'latex') && activeTab.fileContent !== undefined) {
@@ -423,7 +447,7 @@ export const LayoutNode = memo(({ node, path, component: componentRef }) => {
 
                         closeContentPane(comp.draggedItem.id, comp.draggedItem.nodePath);
 
-                        setRootLayoutNode?.(prev => ({ ...prev }));
+                        forceRender(n => n + 1);
                         comp.setDraggedItem(null);
                         comp.setDropTarget(null);
                         return;
@@ -574,7 +598,11 @@ export const LayoutNode = memo(({ node, path, component: componentRef }) => {
                     }
                 }
 
-                setRootLayoutNode?.(prev => ({ ...prev }));
+                forceRender(n => n + 1);
+                // Notify source pane to re-render (it lost a tab)
+                componentRef.current?.paneUpdateEmitter?.dispatchEvent(
+                    new CustomEvent('pane-update', { detail: { paneId: sourceNodeId } })
+                );
                 comp.setDraggedItem(null);
                 comp.setDropTarget(null);
                 return;
