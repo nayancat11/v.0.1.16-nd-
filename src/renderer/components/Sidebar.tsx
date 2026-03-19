@@ -160,13 +160,15 @@ const Sidebar = (props: any) => {
 
     const [filesSettings, setFilesSettings] = useState(() => {
         const saved = localStorage.getItem('incognide_filesSettings');
-        return saved ? JSON.parse(saved) : {
+        const defaults = {
             showHidden: false,
             allowedExtensions: '',
+            customExtensions: '',
             excludedExtensions: '.pyc,.pyo,.git,.DS_Store,__pycache__',
             excludedFolders: 'node_modules,.git,__pycache__,.venv,venv',
             maxDepth: 10
         };
+        return saved ? { ...defaults, ...JSON.parse(saved) } : defaults;
     });
 
     const [websitesSettings, setWebsitesSettings] = useState(() => {
@@ -1640,13 +1642,20 @@ const handleRefreshFilesAndFolders = () => {
     }
 };
 
+const getCustomExtensionsOptions = () => {
+    const raw = filesSettings.customExtensions?.trim();
+    if (!raw) return undefined;
+    const exts = raw.split(',').map(s => s.trim()).filter(Boolean);
+    return exts.length ? { customExtensions: exts } : undefined;
+};
+
 const refreshDirectoryStructureOnly = async () => {
     try {
         if (!currentPath) {
             console.error('No directory path provided');
             return {};
         }
-        const structureResult = await window.api.readDirectoryStructure(currentPath);
+        const structureResult = await window.api.readDirectoryStructure(currentPath, getCustomExtensionsOptions());
         if (structureResult && !structureResult.error) {
             setFolderStructure(structureResult);
         } else {
@@ -3130,7 +3139,7 @@ const renderWebsiteList = () => {
                   console.error('No directory path provided');
                   return {};
               }
-              const structureResult = await window.api.readDirectoryStructure(dirPath);
+              const structureResult = await window.api.readDirectoryStructure(dirPath, getCustomExtensionsOptions());
               if (structureResult && !structureResult.error) {
                   setFolderStructure(structureResult);
               } else {
@@ -3871,6 +3880,16 @@ const renderFolderList = (structure) => {
                             checked={filesSettings.showHidden}
                             onChange={(e) => setFilesSettings(s => ({ ...s, showHidden: e.target.checked }))}
                             className="rounded"
+                        />
+                    </div>
+                    <div>
+                        <label className="text-gray-400 block mb-1">Additional extensions (added to defaults)</label>
+                        <input
+                            type="text"
+                            value={filesSettings.customExtensions}
+                            onChange={(e) => setFilesSettings(s => ({ ...s, customExtensions: e.target.value }))}
+                            placeholder=".rs,.toml,.go,.java"
+                            className="w-full theme-bg-tertiary theme-border border rounded px-2 py-1 theme-text-primary placeholder:opacity-50"
                         />
                     </div>
                     <div>

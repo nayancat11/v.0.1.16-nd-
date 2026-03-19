@@ -16,7 +16,7 @@ readDocxContent: (filePath) =>
   ipcRenderer.invoke('read-docx-content', filePath),
     getDefaultConfig: () => ipcRenderer.invoke('getDefaultConfig'),
     getProjectCtx: (currentPath) => ipcRenderer.invoke('getProjectCtx', currentPath),
-    readDirectoryStructure: (dirPath) => ipcRenderer.invoke('readDirectoryStructure', dirPath),
+    readDirectoryStructure: (dirPath, options) => ipcRenderer.invoke('readDirectoryStructure', dirPath, options),
     goUpDirectory: (currentPath) => ipcRenderer.invoke('goUpDirectory', currentPath),
     readDirectory: (dirPath) => ipcRenderer.invoke('readDirectory', dirPath),
     ensureDir: (dirPath) => ipcRenderer.invoke('ensureDirectory', dirPath),
