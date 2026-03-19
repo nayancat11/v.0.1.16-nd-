@@ -4144,7 +4144,7 @@ onDragStart={(e) => {
                             }}
                             onDoubleClick={() => !isInaccessible && handleOpenFolderAsWorkspace(fullPath)}
                             onContextMenu={(e) => handleSidebarItemContextMenu(e, fullPath, 'directory', isInaccessible)}
-                            className={`flex items-center gap-1.5 px-1.5 py-0.5 w-full hover:bg-gray-800 text-left rounded text-[11px] ${isInaccessible ? 'opacity-60' : ''}`}
+                            className={`flex items-center gap-1.5 px-1.5 py-0.5 w-full hover:bg-gray-800 text-left rounded text-[11px] select-none ${isInaccessible ? 'opacity-60' : ''}`}
                             title={isInaccessible ? `Permission denied: ${fullPath}` : `Drag to open as folder viewer, Click to expand, Ctrl+Click to open as workspace`}
                         >
                             {isInaccessible ? (
@@ -4218,7 +4218,7 @@ onDragStart={(e) => {
                             }
                         }}
                         onContextMenu={(e) => handleSidebarItemContextMenu(e, fullPath, 'file')}
-                        className={`flex items-center gap-1.5 px-1.5 py-0.5 w-full text-left rounded transition-all duration-200 text-[11px]
+                        className={`flex items-center gap-1.5 px-1.5 py-0.5 w-full text-left rounded transition-all duration-200 text-[11px] select-none
                             ${isActiveFile ? 'conversation-selected border-l-2 border-teal-500' :
                               isSelected ? 'conversation-selected' : 'hover:bg-gray-800'}`}
                         title={`Edit ${name}`}
