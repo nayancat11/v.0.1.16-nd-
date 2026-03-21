@@ -1874,6 +1874,9 @@ useEffect(() => {
         }
     };
 
+    let lastMessageTime = Date.now();
+    let heartbeatInterval: any = null;
+
     const connect = () => {
         const params = new URLSearchParams();
         if (windowId) params.set('windowId', windowId);
@@ -1881,6 +1884,7 @@ useEffect(() => {
         const qs = params.toString();
         const url = `${BACKEND_URL}/api/studio/actions_stream${qs ? '?' + qs : ''}`;
         eventSource = new EventSource(url);
+        lastMessageTime = Date.now();
 
         // Register window metadata
         if (windowId) {
@@ -1896,28 +1900,43 @@ useEffect(() => {
         }
 
         eventSource.onmessage = (event) => {
+            lastMessageTime = Date.now();
             try {
                 const data = JSON.parse(event.data);
                 if (data.id && data.action && data.status === 'pending') {
                     executeAction(data.id, data);
                 }
             } catch (err) {
-                // Ignore parse errors
+                // Ignore parse errors (keepalives)
             }
+        };
+
+        eventSource.onopen = () => {
+            lastMessageTime = Date.now();
         };
 
         eventSource.onerror = () => {
             eventSource?.close();
-            // Reconnect after 2 seconds
             reconnectTimeout = setTimeout(connect, 2000);
         };
     };
 
     connect();
 
+    // Heartbeat: if no data (including keepalives) for 60s, force reconnect
+    heartbeatInterval = setInterval(() => {
+        if (Date.now() - lastMessageTime > 60000) {
+            console.log('[SSE] No heartbeat in 60s, reconnecting...');
+            eventSource?.close();
+            if (reconnectTimeout) clearTimeout(reconnectTimeout);
+            connect();
+        }
+    }, 15000);
+
     return () => {
         eventSource?.close();
         if (reconnectTimeout) clearTimeout(reconnectTimeout);
+        if (heartbeatInterval) clearInterval(heartbeatInterval);
     };
 }, [windowId]);
 
