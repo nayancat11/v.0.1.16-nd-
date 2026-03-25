@@ -384,6 +384,16 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
             requestAnimationFrame(() => {
                 try { fitAddon.fit(); } catch (e) { /* terminal may not be visible yet */ }
             });
+            // Delayed re-fit for when pane layout settles after tab drags/moves
+            setTimeout(() => {
+                try { fitAddon.fit(); } catch {}
+            }, 50);
+            setTimeout(() => {
+                try { fitAddon.fit(); } catch {}
+                if (isSessionReady.current) {
+                    window.api.resizeTerminal?.({ id: terminalId, cols: term.cols, rows: term.rows });
+                }
+            }, 300);
 
             term.registerLinkProvider({
                 provideLinks: (lineNumber: number, callback: (links: any[]) => void) => {
@@ -402,13 +412,35 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                         links.push({
                             range: { start: { x: startIdx + 1, y: lineNumber }, end: { x: startIdx + filePath.length + 1 + match[2].length + (match[3] ? match[3].length + 1 : 0), y: lineNumber } },
                             text: `${filePath}:${line}${match[3] ? ':' + col : ''}`,
-                            activate: () => {
+                            activate: async () => {
+                                // Get the terminal's actual cwd for resolving relative paths
+                                let termCwd = currentPath;
+                                try {
+                                    const result = await (window as any).api?.getTerminalCwd?.(terminalId);
+                                    if (result?.cwd) termCwd = result.cwd;
+                                } catch {}
                                 window.dispatchEvent(new CustomEvent('terminal-open-file', {
-                                    detail: { filePath, line, col, currentPath }
+                                    detail: { filePath, line, col, currentPath: termCwd }
                                 }));
                             }
                         });
                     }
+                    // Also match URLs and open them in browser panes
+                    const urlRegex = /https?:\/\/[^\s'"<>)\]]+/g;
+                    let urlMatch;
+                    while ((urlMatch = urlRegex.exec(text)) !== null) {
+                        const url = urlMatch[0].replace(/[.,;:!?)]+$/, ''); // trim trailing punctuation
+                        links.push({
+                            range: { start: { x: urlMatch.index + 1, y: lineNumber }, end: { x: urlMatch.index + url.length + 1, y: lineNumber } },
+                            text: url,
+                            activate: () => {
+                                window.dispatchEvent(new CustomEvent('terminal-open-file', {
+                                    detail: { filePath: url, isUrl: true }
+                                }));
+                            }
+                        });
+                    }
+
                     callback(links);
                 }
             });
@@ -438,7 +470,7 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                             });
                         }
                     });
-                }, 100);
+                }, 30);
             });
             resizeObserverRef.current = resizeObserver;
             resizeObserver.observe(terminalRef.current);
@@ -458,7 +490,7 @@ const TerminalView = ({ nodeId, contentDataRef, currentPath, activeContentPaneId
                             });
                         }
                     });
-                }, 100);
+                }, 30);
             };
             handleWindowResizeRef.current = handleWindowResize;
             window.addEventListener('resize', handleWindowResize);

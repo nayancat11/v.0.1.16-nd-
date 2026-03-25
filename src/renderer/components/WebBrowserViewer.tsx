@@ -61,6 +61,11 @@ const WebBrowserViewer = memo(({
     });
     const [showPermissionsMenu, setShowPermissionsMenu] = useState(false);
 
+    const [navHistoryDropdown, setNavHistoryDropdown] = useState<'back' | 'forward' | null>(null);
+    const navHistoryRef = useRef<string[]>([]);
+    const navHistoryIndexRef = useRef(-1);
+    const longPressTimerRef = useRef<any>(null);
+
     const [adBlockEnabled, setAdBlockEnabled] = useState(() => {
         return localStorage.getItem('npc-browser-adblock') !== 'false';
     });
@@ -121,7 +126,8 @@ const WebBrowserViewer = memo(({
 
     const paneData = contentDataRef.current[nodeId];
 
-    const initialUrlRef = useRef(paneData?.browserUrl || 'about:blank');
+    const initialUrlRef = useRef(paneData?.browserUrl || paneData?.contentId || 'about:blank');
+    console.log(`[Browser ${nodeId}] mount: browserUrl=${paneData?.browserUrl}, contentId=${paneData?.contentId}, initial=${initialUrlRef.current}`);
 
     const projectPartition = currentPath
         ? `project-${currentPath.replace(/[^a-zA-Z0-9]/g, '-').substring(0, 50)}`
@@ -399,6 +405,18 @@ const WebBrowserViewer = memo(({
             setError(null);
             setIsSecure(url.startsWith('https://'));
 
+            // Track navigation history for back/forward dropdown
+            if (url && url !== 'about:blank') {
+                const hist = navHistoryRef.current;
+                const idx = navHistoryIndexRef.current;
+                // Truncate forward history if we navigated from a non-tip position
+                if (idx < hist.length - 1) {
+                    navHistoryRef.current = hist.slice(0, idx + 1);
+                }
+                navHistoryRef.current.push(url);
+                navHistoryIndexRef.current = navHistoryRef.current.length - 1;
+            }
+
             if (url && url !== 'about:blank' && url !== lastHistorySaveRef.current) {
 
                 if (historyDebounceRef.current) {
@@ -481,15 +499,22 @@ const WebBrowserViewer = memo(({
             const url = e.url;
             if (!url || url === 'about:blank') return;
 
+            // OAuth/auth popups should navigate in-place so callbacks work
+            const isAuthFlow = url.includes('accounts.google.com') || url.includes('/oauth') ||
+                url.includes('/auth') || url.includes('/login') || url.includes('/callback') ||
+                url.includes('workos.com') || url.includes('/sso');
+            if (isAuthFlow) {
+                webview.src = url;
+                return;
+            }
+
             const shouldOpenInNewTab = e.disposition === 'background-tab' ||
                                        e.disposition === 'foreground-tab' ||
                                        e.disposition === 'new-window';
 
             if (shouldOpenInNewTab && handleNewBrowserTab) {
-
                 handleNewBrowserTab(url, nodeId);
             } else {
-
                 webview.src = url;
             }
         };
@@ -559,32 +584,91 @@ const WebBrowserViewer = memo(({
             }, 50);
         };
 
-        // Method 1: before-input-event on the webview element
+        // before-input-event: intercept keyboard shortcuts that don't propagate
+        // through Electron's webview isolation (clipboard ops + find)
         const handleBeforeInput = (e: any) => {
             // Electron webview fires this with different shapes depending on version
             const input = e.input || e.args?.[0] || e.detail;
             if (!input) return;
+            if (input.type !== 'keyDown' && input.type) return;
+
             const isMod = input.control || input.meta;
             const key = (input.key || '').toLowerCase();
-            if (isMod && key === 'f' && (input.type === 'keyDown' || !input.type)) {
+
+            if (!isMod) return;
+
+            // Ctrl/Cmd+F — open find bar
+            if (key === 'f') {
                 if (e.preventDefault) e.preventDefault();
                 openFindBar();
+                return;
+            }
+
+            // Clipboard operations: Ctrl/Cmd+C/V/X/A
+            // Electron webview isolation blocks these from reaching the guest page
+            // natively, so we forward them using the webview's built-in methods
+            // which operate on the guest's focused element / selection.
+            if (key === 'c' && !input.shift) {
+                webview.copy();
+                return;
+            }
+            if (key === 'x' && !input.shift) {
+                webview.cut();
+                return;
+            }
+            if (key === 'v' && !input.shift) {
+                webview.paste();
+                return;
+            }
+            if (key === 'a' && !input.shift) {
+                webview.selectAll();
+                return;
             }
         };
         webview.addEventListener('before-input-event', handleBeforeInput);
 
-        // Method 2: Inject a keydown interceptor into the webview page and
-        // communicate back via console.log (works even without nodeIntegration)
-        const injectFindInterceptor = () => {
+        // Inject keyboard interceptors into the webview page and communicate
+        // back via console.log (works even without nodeIntegration)
+        const injectKeyboardHooks = () => {
             try {
                 webview.executeJavaScript(`
-                    if (!window.__incognideFindHook) {
-                        window.__incognideFindHook = true;
+                    if (!window.__incognideKeyboardHooks) {
+                        window.__incognideKeyboardHooks = true;
                         document.addEventListener('keydown', function(e) {
                             if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
                                 e.preventDefault();
                                 e.stopPropagation();
                                 console.log('__INCOGNIDE_CTRL_F__');
+                            }
+                        }, true);
+
+                        // Clipboard fallback: ensure copy/paste/cut work inside the
+                        // guest page even when Electron's webview isolation intercepts
+                        // the native keyboard events before they reach the page.
+                        document.addEventListener('keydown', function(e) {
+                            if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+                            var key = e.key.toLowerCase();
+                            if (key === 'c' && !e.shiftKey) {
+                                document.execCommand('copy');
+                            } else if (key === 'x' && !e.shiftKey) {
+                                document.execCommand('cut');
+                            } else if (key === 'v' && !e.shiftKey) {
+                                // For paste, try the Clipboard API first (async),
+                                // fall back to execCommand
+                                if (navigator.clipboard && navigator.clipboard.readText) {
+                                    navigator.clipboard.readText().then(function(text) {
+                                        var active = document.activeElement;
+                                        if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) {
+                                            document.execCommand('insertText', false, text);
+                                        }
+                                    }).catch(function() {
+                                        document.execCommand('paste');
+                                    });
+                                } else {
+                                    document.execCommand('paste');
+                                }
+                            } else if (key === 'a' && !e.shiftKey) {
+                                document.execCommand('selectAll');
                             }
                         }, true);
                     }
@@ -598,12 +682,12 @@ const WebBrowserViewer = memo(({
             }
         };
 
-        webview.addEventListener('dom-ready', injectFindInterceptor);
+        webview.addEventListener('dom-ready', injectKeyboardHooks);
         webview.addEventListener('console-message', handleConsoleMessage);
 
         return () => {
             webview.removeEventListener('before-input-event', handleBeforeInput);
-            webview.removeEventListener('dom-ready', injectFindInterceptor);
+            webview.removeEventListener('dom-ready', injectKeyboardHooks);
             webview.removeEventListener('console-message', handleConsoleMessage);
         };
     }, []);
@@ -1423,9 +1507,60 @@ const WebBrowserViewer = memo(({
                         {isZenMode ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
                     </button>
                 )}
-                <div className="flex items-center gap-0.5 px-1 border-r theme-border">
-                    <button onClick={handleBack} disabled={!canGoBack} className="p-1 theme-hover rounded disabled:opacity-30" title="Back"><ArrowLeft size={16} /></button>
-                    <button onClick={handleForward} disabled={!canGoForward} className="p-1 theme-hover rounded disabled:opacity-30" title="Forward"><ArrowRight size={16} /></button>
+                <div className="flex items-center gap-0.5 px-1 border-r theme-border relative">
+                    <button
+                        onClick={handleBack}
+                        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setNavHistoryDropdown(navHistoryDropdown === 'back' ? null : 'back'); }}
+                        onMouseDown={() => { longPressTimerRef.current = setTimeout(() => setNavHistoryDropdown('back'), 500); }}
+                        onMouseUp={() => { if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current); }}
+                        onMouseLeave={() => { if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current); }}
+                        disabled={!canGoBack}
+                        className="p-1 theme-hover rounded disabled:opacity-30"
+                        title="Back (right-click or long-press for history)"
+                    ><ArrowLeft size={16} /></button>
+                    <button
+                        onClick={handleForward}
+                        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setNavHistoryDropdown(navHistoryDropdown === 'forward' ? null : 'forward'); }}
+                        onMouseDown={() => { longPressTimerRef.current = setTimeout(() => setNavHistoryDropdown('forward'), 500); }}
+                        onMouseUp={() => { if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current); }}
+                        onMouseLeave={() => { if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current); }}
+                        disabled={!canGoForward}
+                        className="p-1 theme-hover rounded disabled:opacity-30"
+                        title="Forward (right-click or long-press for history)"
+                    ><ArrowRight size={16} /></button>
+                    {navHistoryDropdown && (
+                        <>
+                            <div className="fixed inset-0 z-40" onClick={() => setNavHistoryDropdown(null)} />
+                            <div className="absolute top-full left-0 mt-1 z-50 bg-gray-900 border border-gray-700 rounded shadow-lg py-1 min-w-[250px] max-h-[300px] overflow-y-auto">
+                                {(() => {
+                                    const hist = navHistoryRef.current;
+                                    const idx = navHistoryIndexRef.current;
+                                    const items = navHistoryDropdown === 'back'
+                                        ? hist.slice(0, idx).reverse().map((url, i) => ({ url, offset: -(i + 1) }))
+                                        : hist.slice(idx + 1).map((url, i) => ({ url, offset: i + 1 }));
+                                    if (items.length === 0) return <div className="px-3 py-2 text-xs text-gray-500">No history</div>;
+                                    return items.slice(0, 15).map((item, i) => {
+                                        let label = item.url;
+                                        try { label = new URL(item.url).hostname + new URL(item.url).pathname; } catch {}
+                                        return (
+                                            <button
+                                                key={i}
+                                                onClick={() => {
+                                                    navHistoryIndexRef.current = idx + item.offset;
+                                                    if (webviewRef.current) webviewRef.current.src = item.url;
+                                                    setNavHistoryDropdown(null);
+                                                }}
+                                                className="w-full text-left px-3 py-1.5 text-[11px] text-gray-300 hover:bg-white/10 truncate"
+                                                title={item.url}
+                                            >
+                                                {label}
+                                            </button>
+                                        );
+                                    });
+                                })()}
+                            </div>
+                        </>
+                    )}
                     <div className="relative">
                         <div className="flex items-center">
                             <button

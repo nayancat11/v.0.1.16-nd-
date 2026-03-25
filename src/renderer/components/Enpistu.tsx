@@ -1599,11 +1599,25 @@ const ChatInterface = ({ onRerunSetup }: { onRerunSetup?: () => void }) => {
                 return;
             }
 
-            // Ctrl+Shift+T - New Terminal
-            if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 't' || e.key === 'T')) {
-                e.preventDefault();
-                createNewTerminalRef.current?.();
-                return;
+            // New Terminal: Super+Shift+T (Linux/Win), Ctrl+Shift+T (Mac)
+            // Restore last closed: Ctrl+Shift+T (Linux/Win), Cmd+Shift+T (Mac)
+            if (e.shiftKey && (e.key === 't' || e.key === 'T')) {
+                const isMac = navigator.platform.includes('Mac');
+                const isNewTerminal = isMac ? (e.ctrlKey && !e.metaKey) : (e.metaKey && !e.ctrlKey);
+                const isRestore = isMac ? (e.metaKey && !e.ctrlKey) : (e.ctrlKey && !e.metaKey);
+                if (isNewTerminal) {
+                    e.preventDefault();
+                    createNewTerminalRef.current?.();
+                    return;
+                }
+                if (isRestore) {
+                    e.preventDefault();
+                    const closedTab = closedTabsRef.current.pop();
+                    if (closedTab) {
+                        createAndAddPaneNodeToLayout(closedTab.contentType, closedTab.contentId);
+                    }
+                    return;
+                }
             }
 
             // Ctrl+Shift+C - New Conversation/Chat (but not when in terminal - let terminal handle copy)
@@ -5281,13 +5295,21 @@ ${contextPrompt}`;
 
     // Listen for terminal clickable file:line paths
     useEffect(() => {
-        const handleTerminalOpenFile = (e: CustomEvent<{ filePath: string; line: number; col: number; currentPath: string }>) => {
-            const { filePath, line, col, currentPath: termCwd } = e.detail;
-            // Resolve relative paths against terminal's cwd
+        const handleTerminalOpenFile = (e: CustomEvent<{ filePath: string; line?: number; col?: number; currentPath?: string; isUrl?: boolean }>) => {
+            const { filePath, line, col, currentPath: termCwd, isUrl } = e.detail;
+
+            // URLs open in a browser pane
+            if (isUrl || filePath.startsWith('http://') || filePath.startsWith('https://')) {
+                createAndAddPaneNodeToLayout({ contentType: 'browser', contentId: filePath, browserUrl: filePath });
+                return;
+            }
+
+            // Resolve relative paths against terminal's actual cwd
             const fullPath = filePath.startsWith('/')
                 ? filePath
                 : `${termCwd || currentPath}/${filePath}`;
             const normalized = normalizePath(fullPath);
+
             // Check if file is already open
             const existingPaneId = Object.keys(contentDataRef.current).find(
                 id => contentDataRef.current[id]?.contentType === 'editor' && contentDataRef.current[id]?.contentId === normalized
@@ -5950,7 +5972,7 @@ ${contextPrompt}`;
                 {deepSearchResults.map(result => (
                     <button
                         key={result.conversationId}
-                        onClick={() => handleSearchResultSelect(result.conversationId, searchTerm)}
+                        onClick={() => handleConversationSelect(result.conversationId)}
                         className={`flex flex-col gap-1 px-4 py-2 w-full theme-hover text-left rounded-lg transition-all ${
                             activeConversationId === result.conversationId ? 'border-l-2 border-blue-500' : ''
                         }`}
@@ -8857,7 +8879,25 @@ const renderMainContent = () => {
     return (
         <main className={`flex-1 flex flex-col theme-bg-primary ${isDarkMode ? 'dark-mode' : 'light-mode'} overflow-hidden`}>
             {topBar}
-            <div className="flex-1 flex overflow-hidden" data-tutorial="pane-area">
+            <div
+                className="flex-1 flex overflow-hidden"
+                data-tutorial="pane-area"
+                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    // Handle native file drops from OS file manager onto the pane area
+                    const nativeFiles = e.dataTransfer?.files;
+                    if (nativeFiles && nativeFiles.length > 0) {
+                        for (let i = 0; i < nativeFiles.length; i++) {
+                            const filePath = (nativeFiles[i] as any).path;
+                            if (filePath && handleFileClick) {
+                                handleFileClick(filePath);
+                            }
+                        }
+                    }
+                }}
+            >
                 {rootLayoutNode ? (
                     <LayoutNode node={rootLayoutNode} path={[]} component={layoutComponentRef} />
                 ) : (
